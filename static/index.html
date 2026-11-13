@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d121b">
+  <meta name="description" content="研究・哲学・LLMのモデル時間割と実績を記録する個人用Webアプリ">
+  <title>FocusLog | 研究・読書の時間割</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16 4l4 4L9 19l-5 1 1-5z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16M8 16v-5M13 16V7M18 16V4"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .2.3 1 1.7-2 2-1.7-1-.3-.2a8 8 0 0 1-2.1.9L14 21h-4l-.5-2.3a8 8 0 0 1-2.1-.9l-.3.2-1.7 1-2-2 1-1.7.2-.3a8 8 0 0 1-.9-2.1L1.5 12l2.2-.5a8 8 0 0 1 .9-2.1l-.2-.3-1-1.7 2-2 1.7 1 .3.2a8 8 0 0 1 2.1-.9L10 3h4l.5 2.3a8 8 0 0 1 2.1.9l.3-.2 1.7-1 2 2-1 1.7-.2.3a8 8 0 0 1 .9 2.1l2.2.5-2.2.5a8 8 0 0 1-.9 2.1z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 17v3h14v-3"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M4 11a8 8 0 1 1 2.8 6M4 4v7h7"/></symbol>
+  </svg>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand" aria-label="FocusLog">
+        <div class="brand-mark"><span></span><span></span><span></span></div>
+        <div><div class="brand-name">FocusLog<span class="brand-dot">.</span></div><div class="brand-subtitle">研究・哲学・LLM</div></div>
+      </div>
+      <nav class="primary-nav" aria-label="メインナビゲーション">
+        <button type="button" class="nav-item active" data-view="day" aria-current="page"><svg class="icon"><use href="#i-calendar"/></svg><span>1日の記録</span></button>
+        <button type="button" class="nav-item" data-view="summary"><svg class="icon"><use href="#i-chart"/></svg><span>週の集計</span></button>
+        <button type="button" class="nav-item" data-view="settings"><svg class="icon"><use href="#i-settings"/></svg><span>設定</span></button>
+      </nav>
+      <div class="topbar-right"><span class="status-dot" id="connection-dot"></span><span id="connection-label">接続確認中</span></div>
+    </div>
+  </header>
+
+  <main class="main" id="app">
+    <section id="day-view" class="view active" aria-labelledby="day-heading">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">DAILY JOURNAL</div>
+          <h1 id="day-heading">今日の時間割</h1>
+          <p class="page-description">上段がモデル、下段が実績。共通の時間軸で比較します。</p>
+        </div>
+        <button class="btn btn-primary btn-add-global" id="add-log" type="button"><svg class="icon"><use href="#i-plus"/></svg>実績を追加</button>
+      </div>
+
+      <section class="day-nav card" aria-label="日付の選択">
+        <div class="date-left">
+          <button id="prev-day" class="icon-button" title="前日" aria-label="前日"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
+          <button id="next-day" class="icon-button" title="翌日" aria-label="翌日"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+          <div class="selected-date" id="date-label" aria-live="polite">—</div>
+          <button id="open-date" class="icon-button" title="カレンダーから日付を選択" aria-label="カレンダーから日付を選択"><svg class="icon"><use href="#i-calendar"/></svg></button>
+          <input id="date-input" class="date-input-native" type="date" aria-label="表示日付">
+        </div>
+        <div class="date-right">
+          <button class="btn btn-subtle btn-small" id="go-today">今日</button>
+          <span class="date-tag" id="day-plan-state">毎週のモデル</span>
+        </div>
+      </section>
+
+      <div class="metrics" aria-label="当日の実績集計">
+        <article class="metric card"><div class="metric-label"><span class="category-dot research"></span>研究・修論</div><div class="metric-body"><strong id="metric-research">0h 00m</strong><span id="metric-research-plan">予定 0h</span></div><div class="metric-foot" id="metric-research-diff">—</div></article>
+        <article class="metric card"><div class="metric-label"><span class="category-dot philosophy"></span>哲学</div><div class="metric-body"><strong id="metric-philosophy">0h 00m</strong><span>任意</span></div><div class="metric-foot">実績のみ記録</div></article>
+        <article class="metric card"><div class="metric-label"><span class="category-dot llm"></span>LLM</div><div class="metric-body"><strong id="metric-llm">0h 00m</strong><span>任意</span></div><div class="metric-foot">実績のみ記録</div></article>
+      </div>
+
+      <section class="card timeline-card" aria-labelledby="timeline-heading">
+        <div class="card-head timeline-card-head">
+          <div><h2 id="timeline-heading">モデル × 実績</h2><p>バーを押すと予定の編集や作業実績の入力ができます。</p></div>
+          <div class="timeline-actions">
+            <button type="button" class="btn btn-subtle btn-small" id="scroll-start">07:00へ</button>
+            <button type="button" class="btn btn-subtle btn-small" id="scroll-now">現在時刻へ</button>
+          </div>
+        </div>
+        <div class="legend" aria-label="凡例">
+          <span><i class="category-dot research"></i>研究</span>
+          <span><i class="category-dot philosophy"></i>哲学</span>
+          <span><i class="category-dot llm"></i>LLM</span>
+          <span><i class="category-dot fixed"></i>固定予定</span>
+          <span><i class="category-dot travel"></i>移動</span>
+          <span><i class="category-dot margin"></i>マージン</span>
+          <span><i class="category-dot break"></i>休憩</span>
+        </div>
+        <div class="timeline-hint">左右にスクロール <span aria-hidden="true">↔</span> <span class="timeline-hint-right">時間枠の幅は実際の長さに比例します</span></div>
+        <div class="timeline-scroll" id="timeline-scroll" tabindex="0" aria-label="モデル時間割と実績の共通タイムライン。横方向にスクロールできます">
+          <div class="timeline-canvas" id="timeline-canvas"></div>
+        </div>
+        <div class="timeline-footer">
+          <span>実績がない時間は空白として表示されます。</span>
+          <button type="button" class="text-button" id="add-plan"><svg class="icon"><use href="#i-plus"/></svg>モデル予定を追加</button>
+        </div>
+      </section>
+
+      <section class="card activity-card" aria-labelledby="activity-heading">
+        <div class="card-head">
+          <div><h2 id="activity-heading">作業実績の一覧</h2><p>開始・終了時刻、テーマ、作業内容を手入力します。</p></div>
+          <button type="button" class="btn btn-outline btn-small" id="add-log-inline"><svg class="icon"><use href="#i-plus"/></svg>記録を追加</button>
+        </div>
+        <div id="log-list" class="log-list"></div>
+      </section>
+    </section>
+
+    <section id="summary-view" class="view" aria-labelledby="summary-heading">
+      <div class="page-head"><div><div class="eyebrow">WEEKLY REVIEW</div><h1 id="summary-heading">週の集計</h1><p class="page-description">研究時間の目標と実績、カテゴリごとの活動量を確認します。</p></div></div>
+      <div class="week-nav card"><button id="prev-week" class="icon-button" aria-label="前の週"><svg class="icon"><use href="#i-chevron-left"/></svg></button><button id="next-week" class="icon-button" aria-label="次の週"><svg class="icon"><use href="#i-chevron-right"/></svg></button><strong id="week-label">—</strong><button id="current-week" class="btn btn-subtle btn-small">今週</button></div>
+      <div class="metrics metrics-summary">
+        <article class="metric card"><div class="metric-label"><span class="category-dot research"></span>研究・修論</div><div class="metric-body"><strong id="summary-research">—</strong></div><div class="metric-foot" id="summary-research-diff">—</div></article>
+        <article class="metric card"><div class="metric-label"><span class="category-dot philosophy"></span>哲学</div><div class="metric-body"><strong id="summary-philosophy">—</strong></div><div class="metric-foot">任意の学習</div></article>
+        <article class="metric card"><div class="metric-label"><span class="category-dot llm"></span>LLM</div><div class="metric-body"><strong id="summary-llm">—</strong></div><div class="metric-foot">任意の学習</div></article>
+      </div>
+      <section class="card summary-card"><div class="card-head"><div><h2>曜日別の作業時間</h2><p>研究・哲学・LLMの積み上げ表示。研究の予定時間も併記します。</p></div></div><div id="summary-chart" class="summary-chart"></div></section>
+      <section class="card summary-card"><div class="card-head"><div><h2>集計の考え方</h2></div></div><p class="explain">研究の予定時間には、モデルの「研究」枠と通学中に確保できると見込んだ研究時間が含まれます。哲学・LLMは任意の活動として扱うため、未実施でも未達警告は表示しません。</p></section>
+    </section>
+
+    <section id="settings-view" class="view" aria-labelledby="settings-heading">
+      <div class="page-head"><div><div class="eyebrow">PREFERENCES</div><h1 id="settings-heading">設定・データ管理</h1><p class="page-description">表示範囲、テーマ、データの書き出しを管理します。</p></div></div>
+      <section class="card settings-card">
+        <h2>タイムラインの表示範囲</h2>
+        <p class="muted">全日の時間軸を維持したまま、表示の開始・終了時刻だけを変更できます。</p>
+        <form id="timeline-settings-form" class="settings-time-form"><label>開始時刻<input type="time" id="timeline-start-setting" value="07:00" required></label><label>終了時刻<input type="time" id="timeline-end-setting" value="23:00" required></label><button type="submit" class="btn btn-outline">変更を保存</button></form>
+      </section>
+      <section class="card settings-card">
+        <h2>テーマの管理</h2><p class="muted">テーマ名は変更できます。使わなくなったテーマはアーカイブし、過去の実績を保持します。</p>
+        <div class="theme-filters" role="group" aria-label="テーマのカテゴリ">
+          <button class="filter-chip active" data-category="research">研究・修論</button><button class="filter-chip" data-category="philosophy">哲学</button><button class="filter-chip" data-category="llm">LLM</button>
+        </div>
+        <div id="theme-list" class="theme-list"></div>
+        <form id="new-theme-form" class="new-theme-form"><label class="sr-only" for="new-theme">新しいテーマ</label><input id="new-theme" placeholder="新しいテーマ名" maxlength="100" required><button type="submit" class="btn btn-outline"><svg class="icon"><use href="#i-plus"/></svg>追加</button></form>
+      </section>
+      <section class="card settings-card">
+        <h2>データのエクスポート</h2><p class="muted">実績をCSVで、モデル時間割やテーマを含む全データをJSONで保存できます。</p>
+        <div class="export-actions"><a class="btn btn-outline" href="/api/export?format=csv" download><svg class="icon"><use href="#i-download"/></svg>実績CSV</a><a class="btn btn-outline" href="/api/export?format=json" download><svg class="icon"><use href="#i-download"/></svg>全データJSON</a></div>
+      </section>
+      <section class="card security-card"><h2>接続について</h2><p>データはアプリを起動したPCのSQLiteファイルに保存されます。同じLAN内でそのPCに接続したスマートフォンは、同じ記録を参照・編集できます。</p><p class="warning-text">この試作版にはユーザー認証とインターネット公開用のセキュリティ機能はありません。外部公開せず、信頼できるローカルネットワークでのみ使用してください。</p></section>
+    </section>
+  </main>
+
+  <dialog id="log-dialog" class="modal" aria-labelledby="log-dialog-title">
+    <form id="log-form">
+      <header class="modal-header"><div><div class="eyebrow">ACTIVITY ENTRY</div><h2 id="log-dialog-title">作業実績を追加</h2></div><button type="button" class="icon-button" data-close-dialog="log-dialog" aria-label="閉じる"><svg class="icon"><use href="#i-x"/></svg></button></header>
+      <div class="modal-body">
+        <div class="field"><label for="log-day">日付</label><input id="log-day" type="date" required></div>
+        <div class="form-grid"><div class="field"><label for="log-start">開始時刻</label><input id="log-start" type="time" required step="60"></div><div class="field"><label for="log-end">終了時刻</label><input id="log-end" type="time" required step="60"></div></div>
+        <div class="field"><label for="log-category">カテゴリ</label><select id="log-category" required><option value="research">研究・修論</option><option value="philosophy">哲学</option><option value="llm">LLM</option></select></div>
+        <div class="field"><label for="log-theme">テーマ <span class="field-optional">任意</span></label><input id="log-theme" list="theme-suggestions" maxlength="100" placeholder="例：DoNet / 第二の性"><datalist id="theme-suggestions"></datalist><p class="field-hint">新しいテーマ名を入力すると、保存時に自動登録されます。</p></div>
+        <div class="field"><label for="log-content">作業内容</label><textarea id="log-content" required maxlength="500" rows="3" placeholder="例：DRMの損失関数を実装"></textarea></div>
+        <div class="field"><label for="log-memo">メモ <span class="field-optional">任意</span></label><textarea id="log-memo" maxlength="2000" rows="2" placeholder="気づき・次回の課題"></textarea></div>
+        <p id="log-duration" class="duration-preview">作業時間 —</p>
+        <p id="log-overlap-warning" class="validation-warning" hidden></p>
+      </div>
+      <footer class="modal-footer"><button type="button" class="btn btn-danger-ghost" id="delete-log" hidden>削除</button><div class="modal-footer-right"><button type="button" class="btn btn-subtle" data-close-dialog="log-dialog">キャンセル</button><button type="submit" class="btn btn-primary" id="submit-log">保存</button></div></footer>
+    </form>
+  </dialog>
+
+  <dialog id="plan-dialog" class="modal" aria-labelledby="plan-dialog-title">
+    <form id="plan-form">
+      <header class="modal-header"><div><div class="eyebrow">MODEL SCHEDULE</div><h2 id="plan-dialog-title">モデル予定を編集</h2></div><button type="button" class="icon-button" data-close-dialog="plan-dialog" aria-label="閉じる"><svg class="icon"><use href="#i-x"/></svg></button></header>
+      <div class="modal-body">
+        <div class="form-grid"><div class="field"><label for="plan-start">開始時刻</label><input id="plan-start" type="time" required></div><div class="field"><label for="plan-end">終了時刻</label><input id="plan-end" type="time" required></div></div>
+        <div class="field"><label for="plan-label">予定名</label><input id="plan-label" maxlength="100" required placeholder="例：研究・修論"></div>
+        <div class="field"><label for="plan-kind">種類</label><select id="plan-kind"><option value="research">研究・修論</option><option value="philosophy">哲学（任意）</option><option value="llm">LLM（任意）</option><option value="fixed">固定予定</option><option value="travel">移動</option><option value="break">休憩・食事</option><option value="margin">マージン</option></select></div>
+        <div class="field" id="goal-field"><label for="plan-goal">移動中に見込む研究時間（分）</label><input id="plan-goal" type="number" min="0" step="5" value="0"><p class="field-hint">移動時間のうち、研究に充てられる時間だけを入力します。</p></div>
+        <fieldset class="scope-options"><legend>変更の適用範囲</legend><label><input type="radio" name="plan-scope" value="date" checked><span>この日だけ変更 <small>日付固有の予定として保存</small></span></label><label id="weekly-scope-label"><input type="radio" name="plan-scope" value="weekly"><span>毎週この曜日 <small>同じ曜日のモデル時間割を変更</small></span></label></fieldset>
+        <p class="field-hint" id="plan-scope-note">変更は作業実績には影響しません。</p>
+      </div>
+      <footer class="modal-footer"><button type="button" class="btn btn-danger-ghost" id="delete-plan" hidden>削除</button><div class="modal-footer-right"><button type="button" class="btn btn-subtle" data-close-dialog="plan-dialog">キャンセル</button><button type="submit" class="btn btn-primary">保存</button></div></footer>
+      <div class="modal-secondary-action" id="plan-log-action" hidden><button type="button" class="text-button" id="log-from-plan">この予定をもとに実績を追加 <span aria-hidden="true">→</span></button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <footer class="app-footer">FocusLog prototype v0.1 · データは起動中のPCに保存されます</footer>
+</body>
+</html>

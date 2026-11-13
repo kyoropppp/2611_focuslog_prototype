@@ -1,0 +1,10 @@
+# 実データ（個人の記録）はコミットしない
+data/*
+!data/.gitkeep
+
+# Python / ビルド成果物
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
