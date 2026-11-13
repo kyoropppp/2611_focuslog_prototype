@@ -182,7 +182,16 @@ function renderTimeline(keepScroll=false){
   const label2=el("div","timeline-section-label","作業実績",{top:"151px"});
   label1.title="モデル時間割";label2.title="作業実績";
   el("div","timeline-placeholder",null,{left:"0px",top:`${planTop}px`,height:`${planHeight}px`,width:`${width}px`});
-  el("div","timeline-placeholder",null,{left:"0px",top:`${actualTop}px`,height:`${rowHeight*laneCount-6}px`,width:`${width}px`});
+  // 作業実績の行の空き部分をクリック → その時刻（15分単位で切り捨て）から1時間の実績を追加
+  const actualArea=el("div","timeline-placeholder clickable",null,{left:"0px",top:`${actualTop}px`,height:`${rowHeight*laneCount-6}px`,width:`${width}px`});
+  actualArea.title="クリックしてこの時刻から実績を追加";
+  actualArea.addEventListener("click",e=>{
+    const x=e.clientX-actualArea.getBoundingClientRect().left;
+    let a=start+Math.floor(x/PX_PER_MIN/15)*15;
+    a=Math.max(start,Math.min(a,end-15));
+    const b=Math.min(end,a+60,23*60+59);
+    openLogDialog(null,{start:toTime(a),end:toTime(b)});
+  });
   function makeBlock(entry,isLog,lane=0){
     const a=Math.max(start,toMinutes(entry.start));const b=Math.min(end,toMinutes(entry.end));if(a>=b)return;
     const left=(a-start)*PX_PER_MIN;const w=(b-a)*PX_PER_MIN;
