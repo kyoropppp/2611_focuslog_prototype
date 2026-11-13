@@ -2,7 +2,10 @@
 
 const $ = id => document.getElementById(id);
 const CATEGORIES = { research: "研究・修論", philosophy: "哲学", llm: "LLM" };
-const PLAN_TYPES = { research:"研究・修論",philosophy:"哲学（任意）",llm:"LLM（任意）",fixed:"固定予定",travel:"移動",break:"休憩・食事",margin:"マージン"};
+const PLACES = { home:"自宅", lab:"研究室", travel:"移動中", other:"その他" };
+const PLAN_TYPES = { research:"研究・修論",philosophy:"哲学（任意）",llm:"LLM（任意）",fixed:"固定予定",break:"休憩・食事",margin:"マージン",...PLACES };
+const isPlaceKind = k => Object.prototype.hasOwnProperty.call(PLACES,k);
+const planName = s => s.label || PLAN_TYPES[s.kind] || "予定";
 const WEEKDAYS = ["月","火","水","木","金","土","日"];
 const PX_PER_HOUR = 108;
 const PX_PER_MIN = PX_PER_HOUR / 60;
@@ -15,11 +18,21 @@ const state = {
   weekStart:weekMonday(japanToday()),
   summary:null,
   logEditingId:null,
+  placeEditingId:null,
   planEditing:null,
+  choiceSlot:null,
+  showPlaces:loadShowPlaces(),
   toastTimeout:null,
   navigationSerial:0,
 };
 
+function loadShowPlaces(){try{return localStorage.getItem("focuslog.showPlaces")!=="0";}catch(e){return true;}}
+function setShowPlaces(v){
+  state.showPlaces=v;$("toggle-places").checked=v;
+  try{localStorage.setItem("focuslog.showPlaces",v?"1":"0");}catch(e){}
+  renderDay(true);
+}
+function nowMinutesJapan(){return toMinutes(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Tokyo",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).format(new Date()));}
 function japanToday(){
   const p = new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Tokyo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
   const obj=Object.fromEntries(p.map(x=>[x.type,x.value]));
@@ -69,6 +82,15 @@ function init(){
   $("add-log").addEventListener("click",()=>openLogDialog());
   $("add-log-inline").addEventListener("click",()=>openLogDialog());
   $("add-plan").addEventListener("click",()=>openPlanDialog());
+  $("add-place-inline").addEventListener("click",()=>openPlaceDialog());
+  $("toggle-places").checked=state.showPlaces;
+  $("toggle-places").addEventListener("change",e=>setShowPlaces(e.target.checked));
+  $("place-form").addEventListener("submit",savePlace);
+  $("delete-place").addEventListener("click",deletePlace);
+  ["place-start","place-end"].forEach(id=>$(id).addEventListener("input",updatePlaceDuration));
+  $("choice-place").addEventListener("click",()=>{const s=state.choiceSlot;$("choice-dialog").close();openPlaceDialog(null,s);});
+  $("choice-activity").addEventListener("click",()=>{const s=state.choiceSlot;$("choice-dialog").close();openLogDialog(null,s);});
+  $("choice-edit").addEventListener("click",()=>{const s=state.choiceSlot;$("choice-dialog").close();openPlanDialog(s);});
   $("scroll-start").addEventListener("click",()=>{$("timeline-scroll").scrollTo({left:0,behavior:"smooth"});});
   $("scroll-now").addEventListener("click",scrollToNow);
   $("prev-week").addEventListener("click",()=>switchWeek(addDays(state.weekStart,-7)));
@@ -80,11 +102,7 @@ function init(){
   $("log-category").addEventListener("change",refreshThemeSuggestions);
   $("plan-form").addEventListener("submit",savePlan);
   $("delete-plan").addEventListener("click",deletePlan);
-  $("log-from-plan").addEventListener("click",()=>{
-    const s=state.planEditing;if(!s)return;
-    $("plan-dialog").close();openLogDialog(null,s);
-  });
-  $("plan-kind").addEventListener("change",updatePlanGoalField);
+  $("plan-kind").addEventListener("change",updatePlanKindFields);
   document.querySelectorAll("[data-close-dialog]").forEach(b=>b.addEventListener("click",()=>$(b.dataset.closeDialog).close()));
   document.querySelectorAll(".modal").forEach(dialog=>dialog.addEventListener("click",e=>{
     if(e.target===dialog)dialog.close();
@@ -140,8 +158,26 @@ function renderDay(keepScroll=false){
   $("metric-research-diff").textContent=notStarted?"実績はまだ入力されていません":delta===0?"予定との差 ±0分":`${delta>0?"予定より +":"予定まで -"}${fmtMinutes(Math.abs(delta))}`;
   $("metric-research-diff").classList.toggle("good",!notStarted&&delta>=0);
   $("metric-research-diff").classList.toggle("warn",!notStarted&&delta<0);
+  $("legend-places").hidden=!state.showPlaces;
+  $("place-card").hidden=!state.showPlaces;
   renderTimeline(keepScroll);
+  renderPlaces();
   renderLogs();
+}
+function renderPlaces(){
+  const parent=$("place-list");parent.replaceChildren();
+  const items=state.day.place_logs||[];
+  const totals={};for(const p of items)totals[p.kind]=(totals[p.kind]||0)+timeLength(p);
+  const parts=Object.keys(PLACES).filter(k=>totals[k]).map(k=>`${PLACES[k]} ${fmtMinutes(totals[k])}`);
+  $("place-totals").textContent=parts.length?`${parts.join(" · ")}（活動時間には加算しません）`:"活動時間には加算しません。";
+  if(!items.length){parent.innerHTML=`<div class="empty-state compact">この日の場所・移動の記録はありません。</div>`;return;}
+  for(const p of items){
+    const row=document.createElement("div");row.className="log-item compact";
+    row.innerHTML=`<div class="log-time">${escapeHTML(p.start)}–${escapeHTML(p.end)}</div>
+      <div class="log-item-main"><div class="log-title"><span class="log-category"><span class="category-dot place-${escapeHTML(p.kind)}"></span>${escapeHTML(PLACES[p.kind]||p.kind)}</span></div>${p.memo?`<div class="log-memo">${escapeHTML(p.memo)}</div>`:""}</div>
+      <div class="log-length">${fmtMinutes(timeLength(p))}</div><button type="button" class="icon-button log-edit" aria-label="場所・移動の記録を編集" title="編集">${icon("edit")}</button>`;
+    row.querySelector("button").addEventListener("click",()=>openPlaceDialog(p));parent.appendChild(row);
+  }
 }
 
 function partitionOverlapping(logs){
@@ -151,7 +187,7 @@ function partitionOverlapping(logs){
     const start=toMinutes(log.start),end=toMinutes(log.end);
     let lane=occupied.findIndex(x=>x<=start);
     if(lane<0){lane=occupied.length;occupied.push(end);}else occupied[lane]=end;
-    return {...log,lane};
+    return {...log,row:lane};  // lane（場所/活動）は上書きしない
   });
 }
 function renderTimeline(keepScroll=false){
@@ -162,14 +198,46 @@ function renderTimeline(keepScroll=false){
   const width=Math.max(300,(end-start)*PX_PER_MIN);
   const scroll=$("timeline-scroll");const old=scroll.scrollLeft;
   const canvas=$("timeline-canvas");canvas.replaceChildren();canvas.style.width=`${width}px`;
-  const lanes=partitionOverlapping(data.logs);
-  const laneCount=Math.max(1,...lanes.map(x=>x.lane+1));
-  const planTop=89,planHeight=51,actualTop=191,rowHeight=58;
-  canvas.style.height=`${actualTop+laneCount*rowHeight+26}px`;
-  const el=(tag,cls,text,style={})=>{
+  const gutter=$("timeline-gutter");gutter.replaceChildren();
+  const show=state.showPlaces;
+  const el=(tag,cls,text,style={},parent=canvas)=>{
     const x=document.createElement(tag);if(cls)x.className=cls;if(text!==null&&text!==undefined)x.textContent=text;
-    Object.assign(x.style,style);canvas.appendChild(x);return x;
+    Object.assign(x.style,style);parent.appendChild(x);return x;
   };
+
+  // ---- 4段のレイアウト（場所・移動の段は非表示にできる） ----
+  const lanesOf=items=>{const l=partitionOverlapping(items);return {items:l,count:Math.max(1,...l.map(x=>x.row+1))};};
+  const L={
+    planPlace:lanesOf(data.plan.filter(s=>s.lane==="place")),
+    planAct:lanesOf(data.plan.filter(s=>s.lane!=="place")),
+    logPlace:lanesOf(data.place_logs||[]),
+    logAct:lanesOf(data.logs),
+  };
+  const SLIM={bar:26,step:30},TALL={bar:44,step:50};
+  const rows=[],groups=[];let y=40;
+  const openGroup=(key,title)=>{const g={key,title,top:y};groups.push(g);y+=22;return g;};
+  const addRow=(key,label,spec)=>{
+    const lanes=L[key];const r={key,label,spec,lanes,top:y,height:lanes.count*spec.step-(spec.step-spec.bar)};
+    rows.push(r);y+=lanes.count*spec.step;return r;
+  };
+  const gModel=openGroup("model","モデル");
+  if(show)addRow("planPlace","場所",SLIM);
+  const planActRow=addRow("planAct","活動",TALL);
+  gModel.bottom=y;y+=14;
+  const gLog=openGroup("log","実績");
+  if(show)addRow("logPlace","場所",SLIM);
+  addRow("logAct","活動",TALL);
+  gLog.bottom=y;y+=12;
+  canvas.style.height=`${y}px`;gutter.style.height=`${y}px`;
+
+  // グループの背景帯と、左端に固定したラベル列
+  for(const g of groups){
+    el("div",`timeline-group group-${g.key}`,null,{top:`${g.top-4}px`,height:`${g.bottom-g.top+6}px`,width:`${width}px`});
+    el("div",`gutter-group group-${g.key}`,g.title,{top:`${g.top}px`},gutter);
+  }
+  for(const r of rows)el("div","gutter-row",r.label,{top:`${r.top}px`,height:`${r.height}px`},gutter);
+
+  // 時刻の目盛り
   for(let t=Math.ceil(start/60)*60;t<=end;t+=60){
     const x=(t-start)*PX_PER_MIN;
     el("div","time-grid-line",null,{left:`${x}px`});
@@ -178,50 +246,76 @@ function renderTimeline(keepScroll=false){
   }
   if(start%60!==0)el("span","time-tick start",toTime(start),{left:"0px"});
   if(end%60!==0)el("span","time-tick end",toTime(end),{left:`${width}px`});
-  const label1=el("div","timeline-section-label","モデル時間割",{top:"49px"});
-  const label2=el("div","timeline-section-label","作業実績",{top:"151px"});
-  label1.title="モデル時間割";label2.title="作業実績";
-  el("div","timeline-placeholder",null,{left:"0px",top:`${planTop}px`,height:`${planHeight}px`,width:`${width}px`});
-  // 作業実績の行の空き部分をクリック → その時刻（15分単位で切り捨て）から1時間の実績を追加
-  const actualArea=el("div","timeline-placeholder clickable",null,{left:"0px",top:`${actualTop}px`,height:`${rowHeight*laneCount-6}px`,width:`${width}px`});
-  actualArea.title="クリックしてこの時刻から実績を追加";
-  actualArea.addEventListener("click",e=>{
-    const x=e.clientX-actualArea.getBoundingClientRect().left;
-    let a=start+Math.floor(x/PX_PER_MIN/15)*15;
-    a=Math.max(start,Math.min(a,end-15));
-    const b=Math.min(end,a+60,23*60+59);
-    openLogDialog(null,{start:toTime(a),end:toTime(b)});
-  });
-  function makeBlock(entry,isLog,lane=0){
+
+  // 各段の空白：クリックした時刻（15分単位で切り捨て）から1時間の新規登録
+  const ROW_HINT={planPlace:"クリックで場所・移動の予定を追加",planAct:"クリックで活動の予定を追加",logPlace:"クリックで場所・移動を記録",logAct:"クリックで活動の実績を追加"};
+  for(const r of rows){
+    const area=el("div","timeline-placeholder clickable",null,{left:"0px",top:`${r.top}px`,height:`${r.height}px`,width:`${width}px`});
+    area.title=ROW_HINT[r.key];
+    area.addEventListener("click",e=>{
+      const x=e.clientX-area.getBoundingClientRect().left;
+      let a=start+Math.floor(x/PX_PER_MIN/15)*15;
+      a=Math.max(start,Math.min(a,end-15));
+      const slot={start:toTime(a),end:toTime(Math.min(end,a+60,23*60+59))};
+      if(r.key==="logAct")openLogDialog(null,slot);
+      else if(r.key==="logPlace")openPlaceDialog(null,slot);
+      else openPlanDialog(null,{...slot,lane:r.key==="planPlace"?"place":"activity"});
+    });
+    if((r.key==="logAct"||r.key==="logPlace")&&!r.lanes.items.length)
+      el("span","row-empty-hint",r.key==="logAct"?"空白をクリックして活動を記録":"空白をクリックして場所・移動を記録",{top:`${r.top+r.height/2}px`});
+  }
+
+  // 移動中の研究目標：時刻未指定なので、移動の時間帯全体に点線の枠で示す（確定した作業予定としては描かない）
+  for(const s of L.planPlace.items.filter(s=>s.kind==="travel"&&s.goal_minutes>0)){
+    const a=Math.max(start,toMinutes(s.start)),b=Math.min(end,toMinutes(s.end));if(a>=b)continue;
+    const w=(b-a)*PX_PER_MIN;
+    const g=el("button","timeline-block goal-ghost",null,{left:`${(a-start)*PX_PER_MIN+1}px`,width:`${Math.max(2,w-2)}px`,top:`${planActRow.top}px`,height:`${TALL.bar}px`});
+    g.type="button";
+    g.title=`研究目標 ${s.goal_minutes}分（時刻未指定）\n${planName(s)} ${s.start}–${s.end} の中で合計${s.goal_minutes}分`;
+    g.setAttribute("aria-label",g.title.replaceAll("\n"," "));
+    if(w>38){
+      const main=document.createElement("span");main.className="block-name";main.textContent=`研究目標 ${s.goal_minutes}分`;g.appendChild(main);
+      if(w>102){const sub=document.createElement("small");sub.textContent="時刻未指定";g.appendChild(sub);}
+    }
+    g.addEventListener("click",()=>openChoice(s));
+  }
+
+  function makeBlock(entry,row){
     const a=Math.max(start,toMinutes(entry.start));const b=Math.min(end,toMinutes(entry.end));if(a>=b)return;
     const left=(a-start)*PX_PER_MIN;const w=(b-a)*PX_PER_MIN;
-    const kind=isLog?entry.category:entry.kind;
-    const bttn=el("button",`timeline-block kind-${kind}`,null,{
-      left:`${left+1}px`,width:`${Math.max(2,w-2)}px`,top:`${isLog?actualTop+lane*rowHeight:planTop}px`,height:`${isLog?49:planHeight}px`
+    const slim=row.spec===SLIM;const time=`${entry.start}–${entry.end}`;
+    let cls,label,sub,title,onClick;
+    if(row.key==="planPlace"){
+      cls=`place-${entry.kind}`;label=planName(entry);sub=entry.goal_minutes?`研究目標${entry.goal_minutes}分`:time;
+      title=`モデル（場所・移動）：${PLACES[entry.kind]} ${entry.label||""}\n${time}${entry.goal_minutes?`\n研究目標 ${entry.goal_minutes}分（時刻未指定）`:""}`;
+      onClick=()=>openChoice(entry);
+    }else if(row.key==="planAct"){
+      cls=`kind-${entry.kind}`;label=planName(entry);sub=time;
+      title=`モデル（活動）：${label}\n${time}`;onClick=()=>openChoice(entry);
+    }else if(row.key==="logPlace"){
+      cls=`place-${entry.kind}`;label=PLACES[entry.kind]||entry.kind;sub=entry.memo||time;
+      title=`実績（場所・移動）：${label}\n${time}${entry.memo?"\n"+entry.memo:""}`;onClick=()=>openPlaceDialog(entry);
+    }else{
+      cls=`kind-${entry.category}`;label=entry.theme||entry.content;sub=time;
+      title=`実績（活動）：${CATEGORIES[entry.category]} ${label}\n${time}\n${entry.content}`;onClick=()=>openLogDialog(entry);
+    }
+    const bttn=el("button",`timeline-block ${cls}${slim?" slim":""}`,null,{
+      left:`${left+1}px`,width:`${Math.max(2,w-2)}px`,top:`${row.top+entry.row*row.spec.step}px`,height:`${row.spec.bar}px`
     });
-    bttn.type="button";
-    const label=isLog?(entry.theme||entry.content):entry.label;
-    const subtitle=isLog?`${entry.start}–${entry.end}`:`${entry.start}–${entry.end}${entry.kind==="travel"&&entry.goal_minutes?" · 研究可能":""}`;
-    bttn.title=`${isLog?"実績":"モデル"}：${label}\n${entry.start}–${entry.end}${isLog?"\n"+entry.content:""}`;
-    bttn.setAttribute("aria-label",bttn.title.replaceAll("\n"," "));
+    bttn.type="button";bttn.title=title;bttn.setAttribute("aria-label",title.replaceAll("\n"," "));
     if(w>38){
       const main=document.createElement("span");main.className="block-name";main.textContent=label;bttn.appendChild(main);
-      if(w>102){const sub=document.createElement("small");sub.textContent=subtitle;bttn.appendChild(sub);}
+      if(slim?w>170:w>102){const s=document.createElement("small");s.textContent=sub;bttn.appendChild(s);}
     }
-    bttn.addEventListener("click",()=>isLog?openLogDialog(entry):openPlanDialog(entry));
+    bttn.addEventListener("click",onClick);
   }
-  data.plan.forEach(s=>makeBlock(s,false));
-  lanes.forEach(s=>makeBlock(s,true,s.lane));
-  if(!data.logs.length)el("span","timeline-section-label","まだ作業実績がありません",{top:`${actualTop+12}px`,color:"#91a0b5",fontWeight:"500"});
-  if(data.date===japanToday()){
-    const p=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Tokyo",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).format(new Date());
-    const now=toMinutes(p);
-    if(now>=start&&now<=end)el("div","timeline-now",null,{left:`${(now-start)*PX_PER_MIN}px`});
-  }
+  for(const r of rows)r.lanes.items.forEach(e=>makeBlock(e,r));
+
+  const now=nowMinutesJapan();
+  if(data.date===japanToday()&&now>=start&&now<=end)el("div","timeline-now",null,{left:`${(now-start)*PX_PER_MIN}px`});
   scroll.scrollLeft=keepScroll?old:0;
   $("scroll-start").textContent=`${toTime(start)}へ`;
-  const currentNowMinutes=toMinutes(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Tokyo",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).format(new Date()));
-  $("scroll-now").disabled=data.date!==japanToday()||currentNowMinutes<start||currentNowMinutes>end;
+  $("scroll-now").disabled=data.date!==japanToday()||now<start||now>end;
   const existing=$("reset-day-override");if(existing)existing.remove();
   if(data.plan_source==="override"){
     const reset=document.createElement("button");reset.type="button";reset.id="reset-day-override";reset.className="text-button";reset.textContent="この日の例外設定を解除";
@@ -229,9 +323,15 @@ function renderTimeline(keepScroll=false){
       if(!confirm(`${fmtDay(data.date)}の個別予定を削除し、毎週の基本モデルに戻しますか？`))return;
       try{const d=await request("/api/day-override","DELETE",{date:data.date});state.day=d;renderDay(true);showToast("毎週のモデルに戻しました。");}catch(e){showToast(formatApiError(e),true);}
     });
-    $("timeline-footer-actions")?.appendChild(reset);
-    if(!$("timeline-footer-actions"))$("add-plan").before(reset);
+    $("add-plan").before(reset);
   }
+}
+function openChoice(slot){
+  state.choiceSlot=slot;
+  $("choice-title").textContent=planName(slot);
+  const goal=slot.kind==="travel"&&slot.goal_minutes?` · 研究目標${slot.goal_minutes}分（時刻未指定）`:"";
+  $("choice-sub").textContent=`${slot.start}–${slot.end} · モデル（${slot.lane==="place"?"場所・移動":"活動"}）${goal}`;
+  $("choice-dialog").showModal();
 }
 function scrollToNow(){
   if(!state.day)return;
@@ -262,12 +362,10 @@ function openLogDialog(log=null,plan=null){
   state.logEditingId=log?.id??null;
   $("log-dialog-title").textContent=log?"作業実績を編集":"作業実績を追加";
   $("log-day").value=log?.day||state.selectedDate;
-  let start=log?.start||plan?.start||"07:00";
-  let end=log?.end||plan?.end||"08:00";
-  if(plan&&plan.kind==="travel"&&plan.goal_minutes>0)end=toTime(Math.min(toMinutes(plan.end),toMinutes(plan.start)+plan.goal_minutes));
-  if(plan&&(plan.kind==="fixed"||plan.kind==="margin"||plan.kind==="break"))end=toTime(Math.min(toMinutes(plan.end),toMinutes(plan.start)+60));
-  $("log-start").value=start;$("log-end").value=end;
-  $("log-category").value=log?.category||(["research","philosophy","llm"].includes(plan?.kind)?plan.kind:"research");
+  // モデルから追加する場合は、その予定の開始・終了をそのまま初期値にする（保存前に自由に変更可）
+  $("log-start").value=log?.start||plan?.start||"07:00";
+  $("log-end").value=log?.end||plan?.end||"08:00";
+  $("log-category").value=log?.category||(Object.hasOwn(CATEGORIES,plan?.kind??"")?plan.kind:"research");
   $("log-theme").value=log?.theme||"";$("log-content").value=log?.content||"";$("log-memo").value=log?.memo||"";
   $("delete-log").hidden=!log;
   refreshThemeSuggestions();updateLogValidation();$("log-dialog").showModal();
@@ -302,27 +400,30 @@ async function deleteLog(){
   catch(e){showToast(formatApiError(e),true);}
 }
 
-function updatePlanGoalField(){
-  const travel=$("plan-kind").value==="travel";
-  $("goal-field").hidden=!travel;
+function updatePlanKindFields(){
+  const kind=$("plan-kind").value;const place=isPlaceKind(kind);
+  $("goal-field").hidden=kind!=="travel";
+  $("plan-label").required=!place;
+  $("plan-label-text").textContent=place?"名前・メモ":"予定名";
+  $("plan-label-optional").hidden=!place;
+  $("plan-label").placeholder=place?"例：通学 / 帰宅":"例：研究・修論";
 }
-function openPlanDialog(plan=null){
+function openPlanDialog(plan=null,preset=null){
   state.planEditing=plan;
   $("plan-dialog-title").textContent=plan?"モデル予定を編集":"モデル予定を追加";
-  $("plan-start").value=plan?.start||"07:00";
-  $("plan-end").value=plan?.end||"08:00";
+  $("plan-start").value=plan?.start||preset?.start||"07:00";
+  $("plan-end").value=plan?.end||preset?.end||"08:00";
   $("plan-label").value=plan?.label||"";
-  $("plan-kind").value=plan?.kind||"research";
+  $("plan-kind").value=plan?.kind||(preset?.lane==="place"?"travel":"research");
   $("plan-goal").value=plan?.goal_minutes||0;
   $("delete-plan").hidden=!plan;
-  $("plan-log-action").hidden=!plan;
   document.querySelector('input[name="plan-scope"][value="date"]').checked=true;
   // A date-only custom slot cannot be edited as a recurring slot, but a weekly slot can.
   $("weekly-scope-label").style.display=plan&&!plan.weekly_id?"none":"flex";
   $("plan-scope-note").textContent=state.day.plan_source==="override"?
     "この日には個別設定があります。毎週の変更を選んでも、この日の個別設定には反映されません。":
     "毎週の変更は同じ曜日の基本モデルに反映されます。過去の実績は変わりません。";
-  updatePlanGoalField();$("plan-dialog").showModal();
+  updatePlanKindFields();$("plan-dialog").showModal();
 }
 function planPayload(){
   const start=$("plan-start").value,end=$("plan-end").value,kind=$("plan-kind").value;
@@ -348,11 +449,49 @@ async function savePlan(e){
 async function deletePlan(){
   const s=state.planEditing;if(!s)return;
   const scope=document.querySelector('input[name="plan-scope"]:checked').value;
-  if(!confirm(`${s.label}（${s.start}–${s.end}）を${scope==="weekly"?"毎週の基本モデル":"この日のモデル"}から削除しますか？`))return;
+  if(!confirm(`${planName(s)}（${s.start}–${s.end}）を${scope==="weekly"?"毎週の基本モデル":"この日のモデル"}から削除しますか？`))return;
   try{
     state.day=await request("/api/plans","DELETE",{date:state.selectedDate,scope,id:s.id});
     $("plan-dialog").close();renderDay(true);showToast("モデル予定を削除しました。");
   }catch(err){showToast(formatApiError(err),true);}
+}
+
+function openPlaceDialog(entry=null,plan=null){
+  state.placeEditingId=entry?.id??null;
+  $("place-dialog-title").textContent=entry?"場所・移動の実績を編集":"場所・移動の実績を追加";
+  $("place-day").value=entry?.day||state.selectedDate;
+  $("place-start").value=entry?.start||plan?.start||"07:00";
+  $("place-end").value=entry?.end||plan?.end||"08:00";
+  // 場所・移動のモデルからなら種類も初期選択。活動のモデル（例：バイト）から場所を推測はしない。
+  const kind=entry?.kind||(plan&&isPlaceKind(plan.kind)?plan.kind:null);
+  document.querySelectorAll('input[name="place-kind"]').forEach(r=>{r.checked=r.value===kind;});
+  $("place-memo").value=entry?.memo||"";
+  $("delete-place").hidden=!entry;
+  updatePlaceDuration();$("place-dialog").showModal();
+}
+function updatePlaceDuration(){
+  const st=toMinutes($("place-start").value),en=toMinutes($("place-end").value);
+  $("place-duration").textContent=Number.isFinite(st)&&Number.isFinite(en)&&en>st?`時間：${fmtMinutes(en-st)}`:"終了時刻は開始時刻より後に設定してください";
+}
+async function savePlace(e){
+  e.preventDefault();
+  const kind=document.querySelector('input[name="place-kind"]:checked')?.value;
+  if(!kind){showToast("場所・移動の種類を選択してください。",true);return;}
+  const payload={day:$("place-day").value,start:$("place-start").value,end:$("place-end").value,kind,memo:$("place-memo").value.trim()};
+  if(toMinutes(payload.end)<=toMinutes(payload.start)){showToast("終了時刻は開始時刻より後にしてください。",true);return;}
+  const id=state.placeEditingId;const b=$("submit-place");b.disabled=true;
+  try{
+    const result=await request(id?`/api/place-logs/${id}`:"/api/place-logs",id?"PATCH":"POST",payload);
+    $("place-dialog").close();
+    state.selectedDate=payload.day;state.day=result.day;
+    if(!state.showPlaces)setShowPlaces(true);else renderDay(true);
+    showToast(`場所・移動の記録を${id?"更新":"保存"}しました。`);
+  }catch(err){showToast(formatApiError(err),true);}finally{b.disabled=false;}
+}
+async function deletePlace(){
+  if(!state.placeEditingId||!confirm("この場所・移動の記録を削除しますか？"))return;
+  try{const data=await request(`/api/place-logs/${state.placeEditingId}`,"DELETE",{});$("place-dialog").close();state.day=data;renderDay(true);showToast("場所・移動の記録を削除しました。");}
+  catch(e){showToast(formatApiError(e),true);}
 }
 
 async function switchWeek(start){state.weekStart=start;await loadSummary();}
@@ -376,6 +515,9 @@ function renderSummary(){
     const parts=["research","philosophy","llm"].map(k=>`<span style="width:${(d[k]/maximum*100).toFixed(3)}%;background:var(--${k})" title="${escapeHTML(CATEGORIES[k])} ${fmtMinutes(d[k])}"></span>`).join("");
     return `<div class="day-chart-row"><div class="chart-day">${WEEKDAYS[d.weekday]}曜日<small>${fmtDay(d.day,true)}</small></div><div class="chart-bar-bg"><div class="chart-bar-stack">${parts}</div><div class="chart-target" style="left:${(d.research_goal/maximum*100).toFixed(3)}%" title="研究のモデル：${fmtMinutes(d.research_goal)}"></div></div><div class="chart-total">${fmtMinutes(sum)}</div></div>`;
   }).join("")+`<div class="summary-legend"><span><i class="category-dot research"></i> 研究</span><span><i class="category-dot philosophy"></i> 哲学</span><span><i class="category-dot llm"></i> LLM</span><span>┆ 研究の予定時間</span></div>`;
+  const tp=data.total.places||{};
+  const placeParts=Object.keys(PLACES).filter(k=>tp[k]).map(k=>`<span><i class="category-dot place-${k}"></i>${PLACES[k]} ${fmtMinutes(tp[k])}</span>`);
+  $("summary-places").innerHTML=placeParts.length?`<b>場所・移動の実績</b>${placeParts.join("")}<small>活動時間には加算していません</small>`:"";
 }
 
 function renderSettings(){

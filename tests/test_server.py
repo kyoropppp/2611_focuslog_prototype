@@ -94,4 +94,159 @@ class ApplicationTests(unittest.TestCase):
         self.assertTrue(s.startswith("\ufeff"))
         self.assertIn("category",s)
 
+    # ---- v0.2: 場所・移動と活動の独立 ----
+    def test_travel_is_place_lane_and_goal_is_not_a_timed_research_slot(self):
+        tue=app.get_day("2026-11-24")
+        travel=next(s for s in tue["plan"] if s["start"]=="08:00" and s["kind"]=="travel")
+        self.assertEqual(travel["lane"],"place")
+        self.assertEqual(travel["goal_minutes"],90)
+        # 研究目標90分は、活動段に「08:00〜09:30 研究」のような確定枠として存在しない
+        acts=[s for s in tue["plan"] if s["lane"]=="activity"]
+        self.assertFalse(any(s["kind"]=="research" and s["start"]<"10:00" and s["end"]>"08:00" for s in acts))
+        self.assertTrue(all(s["lane"]=="activity" for s in tue["plan"] if s["kind"] in ("fixed","break","margin","research")))
+        self.assertEqual(app.summary("2026-11-24","2026-11-24")["total"]["research_goal"],90)
+
+    def test_research_and_philosophy_while_travelling(self):
+        day="2026-12-01"
+        place=app.save_place_log({"day":day,"start":"08:00","end":"10:00","kind":"travel","memo":"通学"})
+        r=app.save_log({"day":day,"start":"08:20","end":"09:20","category":"research","theme":"DoNet","content":"論文調査"})
+        p=app.save_log({"day":day,"start":"09:25","end":"09:55","category":"philosophy","theme":"第二の性","content":"読書"})
+        # 場所と活動の重なりは重複扱いしない
+        self.assertEqual(r["overlap_count"],0)
+        self.assertEqual(p["overlap_count"],0)
+        d=app.get_day(day)
+        self.assertEqual(len(d["place_logs"]),1)
+        self.assertEqual(len(d["logs"]),2)
+        t=app.summary(day,day)["total"]
+        self.assertEqual(t["research"],60)      # 移動120分は加算されない（二重計上しない）
+        self.assertEqual(t["philosophy"],30)
+        self.assertEqual(t["places"]["travel"],120)
+        app.remove_log(r["saved_id"]);app.remove_log(p["saved_id"]);app.remove_place_log(place["saved_id"])
+
+    def test_place_log_crud_and_validation(self):
+        day="2026-12-02"
+        res=app.save_place_log({"day":day,"start":"10:00","end":"12:00","kind":"lab"})
+        pid=res["saved_id"]
+        self.assertEqual(res["day"]["place_logs"][0]["kind"],"lab")
+        upd=app.save_place_log({"day":day,"start":"10:30","end":"12:00","kind":"home","memo":"在宅に変更"},pid)
+        self.assertEqual(upd["day"]["place_logs"][0]["start"],"10:30")
+        self.assertEqual(upd["day"]["place_logs"][0]["memo"],"在宅に変更")
+        self.assertEqual(app.remove_place_log(pid)["place_logs"],[])
+        with self.assertRaises(app.BadRequest):app.save_place_log({"day":day,"start":"10:00","end":"11:00","kind":"research"})
+        with self.assertRaises(app.BadRequest):app.save_place_log({"day":day,"start":"11:00","end":"10:00","kind":"home"})
+        with self.assertRaises(app.BadRequest):app.remove_place_log(pid)
+
+    def test_place_plans_date_and_weekly(self):
+        day="2026-12-03"  # 木曜
+        d=app.mutate_plan({"date":day,"scope":"date","slot":{"start":"07:00","end":"11:00","kind":"home","label":""}},"POST")
+        self.assertTrue(any(s["kind"]=="home" and s["lane"]=="place" and s["label"]=="" for s in d["plan"]))
+        self.assertEqual(d["plan_source"],"override")
+        self.assertEqual(app.summary(day,day)["total"]["research_goal"],240)  # 場所の予定は研究目標を変えない
+        app.reset_day(day)
+        w=app.mutate_plan({"date":day,"scope":"weekly","slot":{"start":"07:00","end":"11:00","kind":"lab"}},"POST")
+        slot=next(s for s in w["plan"] if s["kind"]=="lab")
+        self.assertTrue(any(s["kind"]=="lab" for s in app.get_day("2026-12-10")["plan"]))
+        app.mutate_plan({"date":day,"scope":"weekly","id":slot["id"]},"DELETE")
+        with self.assertRaises(app.BadRequest):  # 活動の予定は名前が必須
+            app.mutate_plan({"date":day,"scope":"date","slot":{"start":"07:00","end":"08:00","kind":"research","label":""}},"POST")
+
+    def test_http_place_logs_and_exports(self):
+        import threading, urllib.request
+        from http.server import ThreadingHTTPServer
+        httpd=ThreadingHTTPServer(("127.0.0.1",0),app.Handler)
+        threading.Thread(target=httpd.serve_forever,daemon=True).start()
+        base=f"http://127.0.0.1:{httpd.server_address[1]}"
+        def call(path,method="GET",body=None):
+            req=urllib.request.Request(base+path,method=method,data=None if body is None else json.dumps(body).encode(),
+                                       headers={"Content-Type":"application/json"})
+            with urllib.request.urlopen(req) as r:return r.read().decode("utf-8")
+        try:
+            out=json.loads(call("/api/place-logs","POST",{"day":"2026-12-04","start":"08:00","end":"09:00","kind":"travel"}))
+            pid=out["saved_id"]
+            self.assertEqual(json.loads(call("/api/day?date=2026-12-04"))["place_logs"][0]["kind"],"travel")
+            self.assertIn("travel",call("/api/export?format=places_csv"))
+            self.assertEqual(json.loads(call("/api/export?format=json"))["place_logs"][-1]["id"],pid)
+            self.assertIn("category",call("/api/export?format=csv"))
+            call(f"/api/place-logs/{pid}","DELETE",{})
+        finally:
+            httpd.shutdown();httpd.server_close()
+
+
+class MigrationTests(unittest.TestCase):
+    """v0.1 形式のDB（place_logs なし、schema_version なし）を移行する。"""
+    V1_SCHEMA="""
+        CREATE TABLE weekly_plans (id INTEGER PRIMARY KEY AUTOINCREMENT, weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+            start TEXT NOT NULL, end TEXT NOT NULL, label TEXT NOT NULL, kind TEXT NOT NULL, goal_minutes INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE day_overrides (day TEXT PRIMARY KEY, slots_json TEXT NOT NULL);
+        CREATE TABLE themes (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, name TEXT NOT NULL,
+            archived INTEGER NOT NULL DEFAULT 0, UNIQUE(category, name));
+        CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL,
+            category TEXT NOT NULL, theme_id INTEGER REFERENCES themes(id) ON DELETE SET NULL, content TEXT NOT NULL,
+            memo TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    """
+
+    def setUp(self):
+        import sqlite3
+        self.tmp=tempfile.TemporaryDirectory()
+        self.saved=(app.DATA_DIR,app.DB_PATH)
+        app.DATA_DIR=Path(self.tmp.name);app.DB_PATH=app.DATA_DIR/"focuslog.db"
+        con=sqlite3.connect(str(app.DB_PATH))
+        con.executescript(self.V1_SCHEMA)
+        con.executemany("INSERT INTO weekly_plans(weekday,start,end,label,kind,goal_minutes) VALUES (?,?,?,?,?,?)",app.default_weekly())
+        con.execute("UPDATE weekly_plans SET label='通学（研究可能：最大1.5h）' WHERE kind='travel' AND goal_minutes=90")  # v0.1 の初期名称
+        con.execute("INSERT INTO themes(category,name) VALUES ('research','DoNet'),('philosophy','第二の性'),('llm','自作テーマ')")
+        con.execute("INSERT INTO logs(day,start,end,category,theme_id,content) VALUES ('2026-11-10','08:20','09:20','research',1,'旧データ')")
+        slots=[{"id":"w99","weekly_id":99,"start":"10:00","end":"12:00","label":"研究・修論（輪読なし）","kind":"research","goal_minutes":120},
+               {"id":"w98","weekly_id":98,"start":"08:00","end":"10:00","label":"通学（研究可能：最大1.5h）","kind":"travel","goal_minutes":90}]
+        con.execute("INSERT INTO day_overrides(day,slots_json) VALUES ('2026-11-17',?)",(json.dumps(slots,ensure_ascii=False),))
+        con.execute("INSERT INTO preferences VALUES ('timeline_start','06:00'),('timeline_end','23:00')")
+        con.commit();con.close()
+
+    def tearDown(self):
+        app.DATA_DIR,app.DB_PATH=self.saved
+        self.tmp.cleanup()
+
+    def counts(self):
+        with app.db() as con:
+            return {t:con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("weekly_plans","day_overrides","themes","logs","place_logs")}
+
+    def test_migrate_v1_database(self):
+        backup=app.init_db()
+        self.assertIsNotNone(backup)
+        self.assertTrue(Path(backup).exists())
+        import sqlite3
+        b=sqlite3.connect(str(backup))  # バックアップは移行前の状態
+        self.assertIsNone(b.execute("SELECT 1 FROM sqlite_master WHERE name='place_logs'").fetchone())
+        self.assertEqual(b.execute("SELECT COUNT(*) FROM logs").fetchone()[0],1);b.close()
+        c=self.counts()
+        self.assertEqual(c["weekly_plans"],len(app.default_weekly()))
+        self.assertEqual(c["themes"],3)      # サンプルテーマで上書きしない
+        self.assertEqual(c["logs"],1)
+        self.assertEqual(c["day_overrides"],1)
+        self.assertEqual(c["place_logs"],0)  # 場所を推測して登録しない
+        old=app.get_day("2026-11-10")["logs"][0]
+        self.assertEqual((old["content"],old["theme"],old["start"]),("旧データ","DoNet","08:20"))
+        nov17=app.get_day("2026-11-17")
+        self.assertEqual(nov17["plan_source"],"override")
+        self.assertEqual({s["kind"]:s["lane"] for s in nov17["plan"]},{"research":"activity","travel":"place"})
+        self.assertEqual(sum(s["goal_minutes"] for s in nov17["plan"]),210)
+        # 旧名称「通学（研究可能：最大1.5h）」は「通学」に置き換わる（毎週・例外日とも。研究目標90分は維持）
+        self.assertTrue(any(s["label"]=="通学" and s["goal_minutes"]==90 for s in nov17["plan"]))
+        tue=app.get_day("2026-11-24")["plan"]
+        self.assertTrue(any(s["label"]=="通学" and s["goal_minutes"]==90 for s in tue))
+        self.assertFalse(any("研究可能" in s["label"] for s in tue+nov17["plan"]))
+        self.assertEqual(app.get_day("2026-11-17")["preferences"]["timeline_start"],"06:00")
+        # 再実行してもバックアップ・重複は発生しない
+        self.assertIsNone(app.init_db())
+        self.assertEqual(self.counts(),c)
+        self.assertEqual(len(list((app.DATA_DIR/"backups").iterdir())),1)
+
+    def test_reset_exception_is_not_resurrected_on_restart(self):
+        app.init_db()
+        app.reset_day("2026-11-17")
+        app.init_db()
+        self.assertEqual(app.get_day("2026-11-17")["plan_source"],"weekly")
+
+
 if __name__=="__main__":unittest.main()
