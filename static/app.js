@@ -72,7 +72,6 @@ function init(){
   document.querySelectorAll("[data-view]").forEach(btn=>btn.addEventListener("click",()=>setView(btn.dataset.view)));
   $("prev-day").addEventListener("click",()=>switchDay(addDays(state.selectedDate,-1)));
   $("next-day").addEventListener("click",()=>switchDay(addDays(state.selectedDate,1)));
-  $("go-today").addEventListener("click",()=>switchDay(japanToday()));
   $("open-date").addEventListener("click",()=>{
     const input=$("date-input");input.value=state.selectedDate;
     try{if(typeof input.showPicker==="function")input.showPicker();else input.click();}
@@ -145,7 +144,7 @@ function renderDay(keepScroll=false){
   const data=state.day;
   $("date-label").textContent=fmtDay(data.date);
   $("date-input").value=data.date;
-  $("day-plan-state").textContent=data.applied_pattern?`パターン：${data.applied_pattern}`:data.plan_source==="override"?"この日の個別設定":"毎週のモデル";
+  $("day-plan-state").textContent=data.applied_pattern?`パターン：${data.applied_pattern}`:data.plan_source==="override"?"この日だけ変更":"いつもの予定";
   renderPatternSwitch();
   const researchPlan=data.plan.reduce((s,x)=>s+(Number(x.goal_minutes)||0),0);
   const totals={research:0,philosophy:0,llm:0};
@@ -165,33 +164,39 @@ function renderDay(keepScroll=false){
   renderPlaces();
   renderLogs();
 }
-// 曜日ごとの別パターン（例：火曜「輪読なし」、金曜「ゼミなし」）。「通常」で解除して毎週のモデルに戻す。
+// タイムライン下の「この日の〜」ボタン（状態に応じて1つだけ表示）
+//   いつもの予定の日   → 「この日を『ゼミなし』にする」（その曜日のパターンを適用）
+//   パターン適用中     → 「この日の『ゼミなし』を解除する」（いつもの予定に戻す）
+//   この日だけ変更した日 → 「この日だけの変更を解除する」
 function renderPatternSwitch(){
-  const data=state.day;const sw=$("pattern-switch");const pats=data.patterns||[];
-  sw.hidden=!pats.length;sw.replaceChildren();if(!pats.length)return;
-  const label=document.createElement("span");label.className="pattern-label";label.textContent="パターン";sw.append(label);
-  const items=[{id:null,name:"通常",active:data.plan_source==="weekly"},...pats.map(p=>({...p,active:data.applied_pattern===p.name}))];
-  for(const p of items){
-    const b=document.createElement("button");b.type="button";b.textContent=p.name;b.className="pattern-chip"+(p.active?" active":"");
-    b.setAttribute("aria-pressed",String(p.active));
-    b.addEventListener("click",()=>switchPattern(p));sw.append(b);
-  }
-}
-async function switchPattern(p){
-  const data=state.day;if(p.active)return;
-  const manual=data.plan_source==="override"&&!data.applied_pattern;
-  try{
-    if(p.id===null){
-      if(!confirm(`${fmtDay(data.date)}を通常（毎週のモデル）に戻しますか？${manual?"\nこの日だけ変更した予定は削除されます。":""}`))return;
-      state.day=await request("/api/day-override","DELETE",{date:data.date});
-      showToast("通常の予定に戻しました。");
-    }else{
-      if(data.plan_source==="override"&&!confirm(`この日の予定を「${p.name}」に置き換えますか？${manual?"\nこの日だけ変更した予定は削除されます。":""}`))return;
-      state.day=await request("/api/day-pattern","POST",{date:data.date,pattern_id:p.id});
-      showToast(`「${p.name}」の予定にしました。戻すときは「通常」を押してください。`);
+  const data=state.day;const box=$("pattern-switch");box.replaceChildren();
+  const pats=data.patterns||[];const wd=`${WEEKDAYS[data.weekday]}曜日`;
+  const add=(iconId,text,title,onClick)=>{
+    const b=document.createElement("button");b.type="button";b.className="text-button";
+    b.innerHTML=`${icon(iconId)}<span></span>`;b.querySelector("span").textContent=text;b.title=title;
+    b.addEventListener("click",onClick);box.append(b);
+  };
+  const release=(question,done)=>async()=>{
+    if(!confirm(question))return;
+    try{state.day=await request("/api/day-override","DELETE",{date:data.date});renderDay(true);showToast(done);}
+    catch(e){showToast(formatApiError(e),true);}
+  };
+  if(data.applied_pattern){
+    add("back",`この日の「${data.applied_pattern}」を解除する`,`いつもの${wd}の予定に戻します`,
+      release(`${fmtDay(data.date)}の「${data.applied_pattern}」を解除して、いつもの${wd}の予定に戻しますか？`,`いつもの${wd}の予定に戻しました。`));
+  }else if(data.plan_source==="override"){
+    add("back","この日だけの変更を解除する",`いつもの${wd}の予定に戻します`,
+      release(`${fmtDay(data.date)}だけ変更した予定を解除して、いつもの${wd}の予定に戻しますか？`,`いつもの${wd}の予定に戻しました。`));
+  }else{
+    for(const p of pats){
+      add("plus",`この日を「${p.name}」にする`,`この日だけ「${p.name}」の予定に置き換えます（他の週には影響しません）`,async()=>{
+        try{
+          state.day=await request("/api/day-pattern","POST",{date:data.date,pattern_id:p.id});renderDay(true);
+          showToast(`この日を「${p.name}」にしました。下のボタンで解除できます。`);
+        }catch(e){showToast(formatApiError(e),true);}
+      });
     }
-    renderDay(true);
-  }catch(e){showToast(formatApiError(e),true);}
+  }
 }
 function renderPlaces(){
   const parent=$("place-list");parent.replaceChildren();
@@ -345,15 +350,6 @@ function renderTimeline(keepScroll=false){
   scroll.scrollLeft=keepScroll?old:0;
   $("scroll-start").textContent=`${toTime(start)}へ`;
   $("scroll-now").disabled=data.date!==japanToday()||now<start||now>end;
-  const existing=$("reset-day-override");if(existing)existing.remove();
-  if(data.plan_source==="override"){
-    const reset=document.createElement("button");reset.type="button";reset.id="reset-day-override";reset.className="text-button";reset.textContent="この日の例外設定を解除";
-    reset.addEventListener("click",async()=>{
-      if(!confirm(`${fmtDay(data.date)}の個別予定を削除し、毎週の基本モデルに戻しますか？`))return;
-      try{const d=await request("/api/day-override","DELETE",{date:data.date});state.day=d;renderDay(true);showToast("毎週のモデルに戻しました。");}catch(e){showToast(formatApiError(e),true);}
-    });
-    $("add-plan").before(reset);
-  }
 }
 function openChoice(slot){
   state.choiceSlot=slot;
@@ -450,7 +446,7 @@ function openPlanDialog(plan=null,preset=null){
   // A date-only custom slot cannot be edited as a recurring slot, but a weekly slot can.
   $("weekly-scope-label").style.display=plan&&!plan.weekly_id?"none":"flex";
   $("plan-scope-note").textContent=state.day.plan_source==="override"?
-    "この日には個別設定があります。毎週の変更を選んでも、この日の個別設定には反映されません。":
+    "この日はいつもの予定から変更されています。「毎週この曜日」で変更しても、この日には反映されません（タイムライン下のボタンで解除すると反映されます）。":
     "毎週の変更は同じ曜日の基本モデルに反映されます。過去の実績は変わりません。";
   updatePlanKindFields();$("plan-dialog").showModal();
 }

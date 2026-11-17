@@ -59,10 +59,8 @@
           <button id="open-date" class="icon-button" title="カレンダーから日付を選択" aria-label="カレンダーから日付を選択"><svg class="icon"><use href="#i-calendar"/></svg></button>
           <input id="date-input" class="date-input-native" type="date" aria-label="表示日付">
         </div>
-        <div class="pattern-switch" id="pattern-switch" role="group" aria-label="この日の予定パターン" hidden></div>
         <div class="date-right">
-          <button class="btn btn-subtle btn-small" id="go-today">今日</button>
-          <span class="date-tag" id="day-plan-state">毎週のモデル</span>
+          <span class="date-tag" id="day-plan-state">いつもの予定</span>
         </div>
       </section>
 
@@ -106,8 +104,11 @@
           </div>
         </div>
         <div class="timeline-footer">
-          <span>実績がない時間は空白として表示されます。</span>
-          <button type="button" class="text-button" id="add-plan"><svg class="icon"><use href="#i-plus"/></svg>モデル予定を追加</button>
+          <span id="timeline-footer-note">実績がない時間は空白として表示されます。</span>
+          <div class="timeline-footer-actions">
+            <span id="pattern-switch"></span>
+            <button type="button" class="text-button" id="add-plan"><svg class="icon"><use href="#i-plus"/></svg>モデル予定を追加</button>
+          </div>
         </div>
       </section>
 
