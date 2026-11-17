@@ -3,8 +3,10 @@
   --page:#0b1018;--panel:#141c29;--panel-2:#192332;--panel-3:#202c3c;
   --stroke:#273448;--text:#edf2fa;--muted:#a2afc2;--dim:#77879d;
   --blue:#638fe5;--amber:#d2a552;--green:#67a28a;--purple:#998bc0;--steel:#6f9caa;
-  --research:#527fc4;--philosophy:#bd9347;--llm:#5f967e;--fixed:#8174a8;--travel:#678e9d;--margin:#8c7652;--break:#626d7a;
-  --home:#a0687e;--lab:#c27c5c;--other:#6e7889;
+  /* 活動：はっきり見分けられる色 */
+  --research:#3a78de;--philosophy:#c8861f;--llm:#22966a;--fixed:#8f58cf;--margin:#8c7652;--break:#5c6878;
+  /* 場所・移動：目立たない淡い色（帯は半透明、左端の線と文字だけ少し色をつける） */
+  --home:#b9869a;--lab:#c0957a;--travel:#7fa6b2;--other:#8b95a3;
   font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
 }
 *{box-sizing:border-box}
@@ -142,8 +144,11 @@ textarea{resize:vertical;min-height:70px;line-height:1.65}.settings-time-form in
 .timeline-block.slim{flex-direction:row;gap:7px;font-size:11px;padding:2px 8px;border-radius:6px}
 .timeline-block.slim small{font-size:10px}
 .timeline-block.slim .block-name{width:auto;flex:0 1 auto;min-width:0}
-.timeline-block.place-home{background:var(--home)}.timeline-block.place-lab{background:var(--lab)}.timeline-block.place-travel{background:var(--travel)}.timeline-block.place-other{background:var(--other)}
-.timeline-block.goal-ghost{background:repeating-linear-gradient(135deg,#527fc41f 0 6px,#527fc40a 6px 12px);border:1.5px dashed #6f9be6;color:#bcd2f7;font-weight:650}
+.timeline-block.place-home,.timeline-block.place-lab,.timeline-block.place-travel,.timeline-block.place-other{color:#c3cedb;font-weight:600;border:1px solid #ffffff0d;border-left:3px solid var(--pc)}
+.timeline-block.place-home{--pc:var(--home);background:#b9869a24}.timeline-block.place-lab{--pc:var(--lab);background:#c0957a24}
+.timeline-block.place-travel{--pc:var(--travel);background:#7fa6b226}.timeline-block.place-other{--pc:var(--other);background:#8b95a31f}
+.timeline-block.place-home small,.timeline-block.place-lab small,.timeline-block.place-travel small,.timeline-block.place-other small{color:#9fadbd}
+.timeline-block.goal-ghost{background:repeating-linear-gradient(135deg,#3f7fe624 0 6px,#3f7fe60a 6px 12px);border:1.5px dashed #6b9cf0;color:#bcd2f7;font-weight:650}
 .timeline-block.goal-ghost small{color:#9fb7df}
 .row-empty-hint{position:absolute;left:12px;transform:translateY(-50%);font-size:11px;color:#71829a;pointer-events:none;white-space:nowrap}
 .toggle-chip{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:6px 11px;border:1px solid #26394f;border-radius:10px;background:#1b2736;color:#c2d0e3;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap}
@@ -221,3 +226,6 @@ textarea{resize:vertical;min-height:70px;line-height:1.65}.settings-time-form in
   .day-nav .date-left{gap:2px}
   .day-nav .icon-button{width:32px;height:32px}
 }
+
+.summary-places{flex-direction:column;align-items:flex-start}
+.summary-line{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}.summary-line span{display:flex;align-items:center;gap:6px}

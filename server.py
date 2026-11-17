@@ -28,7 +28,9 @@ DATA_DIR = Path(os.environ.get("FOCUSLOG_DATA_DIR", str(_DEFAULT_DATA)))
 DB_PATH = DATA_DIR / "focuslog.db"
 STATIC_DIR = BASE / "static"
 DB_LOCK = threading.RLock()
-CATEGORIES = ("research", "philosophy", "llm")
+CATEGORIES = ("research", "philosophy", "llm")  # 集計の対象。テーマもこの3つ
+OTHER_LOG_CATEGORIES = ("fixed", "break")      # 実績の活動として記録できるが、研究・哲学・LLMの集計には入れない
+LOG_CATEGORIES = CATEGORIES + OTHER_LOG_CATEGORIES
 # モデル予定の種類。種類によって「活動」段か「場所・移動」段かが決まる。
 ACTIVITY_PLAN_TYPES = ("research", "philosophy", "llm", "break", "fixed", "margin")
 PLACE_KINDS = ("home", "lab", "travel", "other")  # 自宅 / 研究室 / 移動中 / その他
@@ -539,10 +541,12 @@ def validate_log(payload):
     end=short_text(payload.get("end"),"終了時刻",5)
     duration(start,end)
     category=payload.get("category")
-    if category not in CATEGORIES:
-        raise BadRequest("実績カテゴリは研究・哲学・LLMのいずれかにしてください。")
-    theme=short_text(payload.get("theme", ""),"テーマ",100,False)
-    content=short_text(payload.get("content"),"作業内容",500)
+    if category not in LOG_CATEGORIES:
+        raise BadRequest("実績の分野は研究・哲学・LLM・固定予定・休憩のいずれかにしてください。")
+    other=category in OTHER_LOG_CATEGORIES
+    # 固定予定・休憩はテーマなし、作業内容は任意
+    theme="" if other else short_text(payload.get("theme", ""),"テーマ",100,False)
+    content=short_text(payload.get("content", "") if other else payload.get("content"),"作業内容",500,required=not other)
     memo=short_text(payload.get("memo", ""),"メモ",2000,False)
     return day,start,end,category,theme,content,memo
 
@@ -656,11 +660,12 @@ def summary(start,end):
             data.append({"day":day,"weekday":current.weekday(),
                          "research_goal":sum(s.get("goal_minutes",0) for s in slots),
                          "research":actual.get("research",0),"philosophy":actual.get("philosophy",0),"llm":actual.get("llm",0),
+                         "fixed":actual.get("fixed",0),"break":actual.get("break",0),
                          "places":{k:places.get(k,0) for k in PLACE_KINDS}})
             current+=timedelta(days=1)
     return {"start":start,"end":end,"days":data,
             "total":{"research_goal":sum(x["research_goal"] for x in data),
-                     **{k:sum(x[k] for x in data) for k in CATEGORIES},
+                     **{k:sum(x[k] for x in data) for k in LOG_CATEGORIES},
                      "places":{k:sum(x["places"][k] for x in data) for k in PLACE_KINDS}}}
 
 

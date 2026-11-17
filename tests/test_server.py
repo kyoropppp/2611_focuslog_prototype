@@ -181,6 +181,26 @@ class ApplicationTests(unittest.TestCase):
         with self.assertRaises(app.BadRequest):app.apply_pattern({"date":"2026-12-10","pattern_id":pid})  # 木曜には適用不可
         with self.assertRaises(app.BadRequest):app.apply_pattern({"date":day,"pattern_id":9999})
 
+    # ---- 実績の活動に固定予定・休憩 ----
+    def test_fixed_and_break_logs(self):
+        day="2027-01-11"
+        themes_before=len(app.get_themes())
+        f=app.save_log({"day":day,"start":"13:00","end":"18:00","category":"fixed","theme":"無視される","content":"オンラインバイト"})
+        b=app.save_log({"day":day,"start":"12:00","end":"13:00","category":"break","content":""})  # 作業内容は任意
+        r=app.save_log({"day":day,"start":"07:00","end":"09:00","category":"research","content":"実装"})
+        logs={x["category"]:x for x in app.get_day(day)["logs"]}
+        self.assertIsNone(logs["fixed"]["theme"])
+        self.assertEqual(logs["break"]["content"],"")
+        self.assertEqual(len(app.get_themes()),themes_before)  # テーマは作られない
+        t=app.summary(day,day)["total"]
+        self.assertEqual((t["research"],t["philosophy"],t["llm"]),(120,0,0))  # 研究・哲学・LLMには加算しない
+        self.assertEqual((t["fixed"],t["break"]),(300,60))
+        with self.assertRaises(app.BadRequest):  # 研究は作業内容が必須のまま
+            app.save_log({"day":day,"start":"09:00","end":"10:00","category":"research","content":""})
+        with self.assertRaises(app.BadRequest):
+            app.save_log({"day":day,"start":"09:00","end":"10:00","category":"margin","content":"x"})
+        for x in (f,b,r):app.remove_log(x["saved_id"])
+
     # ---- 編集モード：まとめて保存 ----
     def test_bulk_replace_date_scope(self):
         day="2027-01-06"  # 水曜

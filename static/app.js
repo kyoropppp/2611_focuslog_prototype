@@ -1,7 +1,10 @@
 "use strict";
 
 const $ = id => document.getElementById(id);
-const CATEGORIES = { research: "研究・修論", philosophy: "哲学", llm: "LLM" };
+const CATEGORIES = { research: "研究・修論", philosophy: "哲学", llm: "LLM" };  // 集計対象（テーマあり）
+const LOG_CATEGORIES = { ...CATEGORIES, fixed:"固定予定", break:"休憩・食事" };  // 実績の活動で選べる分野
+const isOtherCategory = c => c==="fixed"||c==="break";
+const logLabel = log => log.theme||log.content||LOG_CATEGORIES[log.category]||"";
 const PLACES = { home:"自宅", lab:"研究室", travel:"移動中", other:"その他" };
 const PLAN_TYPES = { research:"研究・修論",philosophy:"哲学（任意）",llm:"LLM（任意）",fixed:"固定予定",break:"休憩・食事",margin:"マージン",...PLACES };
 const isPlaceKind = k => Object.prototype.hasOwnProperty.call(PLACES,k);
@@ -162,7 +165,7 @@ function renderDay(keepScroll=false){
   renderEditState();
   const researchPlan=currentPlan().reduce((s,x)=>s+(Number(x.goal_minutes)||0),0);
   const totals={research:0,philosophy:0,llm:0};
-  for(const log of data.logs)totals[log.category]+=timeLength(log);
+  for(const log of data.logs)if(log.category in totals)totals[log.category]+=timeLength(log);
   $("metric-research").textContent=fmtMinutes(totals.research);
   $("metric-research-plan").textContent=`予定 ${fmtMinutes(researchPlan)}`;
   $("metric-philosophy").textContent=fmtMinutes(totals.philosophy);
@@ -345,8 +348,8 @@ function renderTimeline(keepScroll=false){
       cls=`place-${entry.kind}`;label=PLACES[entry.kind]||entry.kind;sub=entry.memo||time;
       title=`実績（場所・移動）：${label}\n${time}${entry.memo?"\n"+entry.memo:""}`;onClick=()=>openPlaceDialog(entry);
     }else{
-      cls=`kind-${entry.category}`;label=entry.theme||entry.content;sub=time;
-      title=`実績（活動）：${CATEGORIES[entry.category]} ${label}\n${time}\n${entry.content}`;onClick=()=>openLogDialog(entry);
+      cls=`kind-${entry.category}`;label=logLabel(entry);sub=time;
+      title=`実績（活動）：${LOG_CATEGORIES[entry.category]} ${label}\n${time}${entry.content?"\n"+entry.content:""}`;onClick=()=>openLogDialog(entry);
     }
     const isPlan=row.key.startsWith("plan");
     const bttn=el("button",`timeline-block ${cls}${slim?" slim":""} ${isPlan?"plan-part":"log-part"}${isPlan&&state.edit?" editable":""}`,null,{
@@ -389,7 +392,7 @@ function renderLogs(){
   for(const log of logs){
     const row=document.createElement("div");row.className="log-item";
     row.innerHTML=`<div class="log-time">${escapeHTML(log.start)}–${escapeHTML(log.end)}</div>
-      <div class="log-item-main"><div class="log-meta"><span class="log-category"><span class="category-dot ${escapeHTML(log.category)}"></span>${escapeHTML(CATEGORIES[log.category])}</span>${log.theme?`<span class="log-theme">${escapeHTML(log.theme)}</span>`:""}</div><div class="log-title">${escapeHTML(log.content)}</div>${log.memo?`<div class="log-memo">${escapeHTML(log.memo)}</div>`:""}</div>
+      <div class="log-item-main"><div class="log-meta"><span class="log-category"><span class="category-dot ${escapeHTML(log.category)}"></span>${escapeHTML(LOG_CATEGORIES[log.category]||log.category)}</span>${log.theme?`<span class="log-theme">${escapeHTML(log.theme)}</span>`:""}</div><div class="log-title">${escapeHTML(log.content||LOG_CATEGORIES[log.category]||"")}</div>${log.memo?`<div class="log-memo">${escapeHTML(log.memo)}</div>`:""}</div>
       <div class="log-length">${fmtMinutes(timeLength(log))}</div><button type="button" class="icon-button log-edit" aria-label="作業実績を編集" title="編集">${icon("edit")}</button>`;
     row.querySelector("button").addEventListener("click",()=>openLogDialog(log));parent.appendChild(row);
   }
@@ -398,6 +401,10 @@ function renderLogs(){
 async function loadThemes(){state.themes=await api("/api/themes");refreshThemeSuggestions();renderThemes();}
 function refreshThemeSuggestions(){
   const sel=$("log-category").value;
+  // 固定予定・休憩はテーマなし・作業内容は任意
+  const other=isOtherCategory(sel);
+  $("log-theme-field").hidden=other;$("log-content").required=!other;$("log-content-optional").hidden=!other;
+  $("log-content").placeholder=other?"例：オンラインバイト / 昼食":"例：DRMの損失関数を実装";
   $("theme-suggestions").innerHTML=state.themes.filter(x=>!x.archived&&x.category===sel).map(x=>`<option value="${escapeHTML(x.name)}"></option>`).join("");
 }
 function openLogDialog(log=null,plan=null){
@@ -407,8 +414,10 @@ function openLogDialog(log=null,plan=null){
   // モデルから追加する場合は、その予定の開始・終了をそのまま初期値にする（保存前に自由に変更可）
   $("log-start").value=log?.start||plan?.start||"07:00";
   $("log-end").value=log?.end||plan?.end||"08:00";
-  $("log-category").value=log?.category||(Object.hasOwn(CATEGORIES,plan?.kind??"")?plan.kind:"research");
-  $("log-theme").value=log?.theme||"";$("log-content").value=log?.content||"";$("log-memo").value=log?.memo||"";
+  $("log-category").value=log?.category||(Object.hasOwn(LOG_CATEGORIES,plan?.kind??"")?plan.kind:"research");
+  $("log-theme").value=log?.theme||"";
+  // 固定予定・休憩のモデルから追加するときは、予定名を作業内容の初期値にする
+  $("log-content").value=log?log.content||"":(plan&&isOtherCategory(plan.kind)?plan.label||"":"");$("log-memo").value=log?.memo||"";
   $("delete-log").hidden=!log;
   refreshThemeSuggestions();updateLogValidation();$("log-dialog").showModal();
   if(!log&&!plan)$("log-start").focus();else if(!log)$("log-content").focus();
@@ -425,7 +434,7 @@ function updateLogValidation(){
 async function saveLog(e){
   e.preventDefault();
   const payload={day:$("log-day").value,start:$("log-start").value,end:$("log-end").value,
-    category:$("log-category").value,theme:$("log-theme").value.trim(),content:$("log-content").value.trim(),memo:$("log-memo").value.trim()};
+    category:$("log-category").value,theme:isOtherCategory($("log-category").value)?"":$("log-theme").value.trim(),content:$("log-content").value.trim(),memo:$("log-memo").value.trim()};
   if(toMinutes(payload.end)<=toMinutes(payload.start)){showToast("終了時刻は開始時刻より後にしてください。",true);return;}
   const id=state.logEditingId;const b=$("submit-log");b.disabled=true;
   try{
@@ -674,7 +683,12 @@ function renderSummary(){
   }).join("")+`<div class="summary-legend"><span><i class="category-dot research"></i> 研究</span><span><i class="category-dot philosophy"></i> 哲学</span><span><i class="category-dot llm"></i> LLM</span><span>┆ 研究の予定時間</span></div>`;
   const tp=data.total.places||{};
   const placeParts=Object.keys(PLACES).filter(k=>tp[k]).map(k=>`<span><i class="category-dot place-${k}"></i>${PLACES[k]} ${fmtMinutes(tp[k])}</span>`);
-  $("summary-places").innerHTML=placeParts.length?`<b>場所・移動の実績</b>${placeParts.join("")}<small>活動時間には加算していません</small>`:"";
+  const t=data.total;
+  const otherParts=["fixed","break"].filter(k=>t[k]).map(k=>`<span><i class="category-dot ${k}"></i>${LOG_CATEGORIES[k]} ${fmtMinutes(t[k])}</span>`);
+  $("summary-places").innerHTML=[
+    otherParts.length?`<div class="summary-line"><b>その他の実績</b>${otherParts.join("")}<small>研究・哲学・LLMには加算していません</small></div>`:"",
+    placeParts.length?`<div class="summary-line"><b>場所・移動の実績</b>${placeParts.join("")}<small>活動時間には加算していません</small></div>`:"",
+  ].join("");
 }
 
 function renderSettings(){

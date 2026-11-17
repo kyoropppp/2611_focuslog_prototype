@@ -170,9 +170,9 @@
       <div class="modal-body">
         <div class="field"><label for="log-day">日付</label><input id="log-day" type="date" required></div>
         <div class="form-grid"><div class="field"><label for="log-start">開始時刻</label><input id="log-start" type="time" required step="60"></div><div class="field"><label for="log-end">終了時刻</label><input id="log-end" type="time" required step="60"></div></div>
-        <div class="field"><label for="log-category">カテゴリ</label><select id="log-category" required><option value="research">研究・修論</option><option value="philosophy">哲学</option><option value="llm">LLM</option></select></div>
-        <div class="field"><label for="log-theme">テーマ <span class="field-optional">任意</span></label><input id="log-theme" list="theme-suggestions" maxlength="100" placeholder="例：DoNet / 第二の性"><datalist id="theme-suggestions"></datalist><p class="field-hint">新しいテーマ名を入力すると、保存時に自動登録されます。</p></div>
-        <div class="field"><label for="log-content">作業内容</label><textarea id="log-content" required maxlength="500" rows="3" placeholder="例：DRMの損失関数を実装"></textarea></div>
+        <div class="field"><label for="log-category">分野</label><select id="log-category" required><option value="research">研究・修論</option><option value="philosophy">哲学</option><option value="llm">LLM</option><option value="fixed">固定予定（バイト・ゼミなど）</option><option value="break">休憩・食事</option></select></div>
+        <div class="field" id="log-theme-field"><label for="log-theme">テーマ <span class="field-optional">任意</span></label><input id="log-theme" list="theme-suggestions" maxlength="100" placeholder="例：DoNet / 第二の性"><datalist id="theme-suggestions"></datalist><p class="field-hint">新しいテーマ名を入力すると、保存時に自動登録されます。</p></div>
+        <div class="field"><label for="log-content">作業内容 <span class="field-optional" id="log-content-optional" hidden>任意</span></label><textarea id="log-content" required maxlength="500" rows="3" placeholder="例：DRMの損失関数を実装"></textarea></div>
         <div class="field"><label for="log-memo">メモ <span class="field-optional">任意</span></label><textarea id="log-memo" maxlength="2000" rows="2" placeholder="気づき・次回の課題"></textarea></div>
         <p id="log-duration" class="duration-preview">作業時間 —</p>
         <p id="log-overlap-warning" class="validation-warning" hidden></p>
