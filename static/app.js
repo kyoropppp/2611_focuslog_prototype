@@ -79,7 +79,6 @@ function init(){
     catch(e){input.focus();input.click();}
   });
   $("date-input").addEventListener("change",e=>{if(e.target.value)switchDay(e.target.value);});
-  $("add-log").addEventListener("click",()=>openLogDialog());
   $("add-log-inline").addEventListener("click",()=>openLogDialog());
   $("add-plan").addEventListener("click",enterEdit);
   // アプリのウィンドウでは Ctrl+F5 が効かないため、画面に更新ボタンを置く
@@ -386,7 +385,7 @@ function scrollToNow(){
 function renderLogs(){
   const parent=$("log-list");parent.replaceChildren();
   const logs=state.day.logs;
-  if(!logs.length){parent.innerHTML=`<div class="empty-state">${icon("list")}この日の作業実績はまだありません。<br>「実績を追加」から開始・終了時刻と作業内容を入力してください。</div>`;return;}
+  if(!logs.length){parent.innerHTML=`<div class="empty-state">${icon("list")}この日の作業実績はまだありません。<br>タイムラインの空白か、「記録を追加」から入力してください。</div>`;return;}
   for(const log of logs){
     const row=document.createElement("div");row.className="log-item";
     row.innerHTML=`<div class="log-time">${escapeHTML(log.start)}–${escapeHTML(log.end)}</div>
