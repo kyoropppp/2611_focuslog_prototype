@@ -223,13 +223,13 @@ class ApplicationTests(unittest.TestCase):
         day="2027-01-02"  # 土曜
         before=app.get_day(day)["plan"]
         n=len(before)
-        slots=[{**s,"end":"10:00","goal_minutes":180} if s["start"]=="07:00" else s for s in before if s["label"]!="LLM（任意）"]
+        slots=[{**s,"end":"10:00","goal_minutes":180} if s["start"]=="07:00" else s for s in before if s["label"]!="個人開発（任意）"]
         slots.append({"start":"21:00","end":"22:00","label":"読書","kind":"philosophy","goal_minutes":0})
         d=app.replace_plans({"date":day,"scope":"weekly","slots":slots})
         self.assertEqual(d["plan_source"],"weekly")
         other=app.get_day("2027-01-09")["plan"]  # 次の土曜にも反映
         self.assertTrue(any(s["start"]=="07:00" and s["end"]=="10:00" for s in other))
-        self.assertFalse(any(s["label"]=="LLM（任意）" for s in other))
+        self.assertFalse(any(s["label"]=="個人開発（任意）" for s in other))
         self.assertTrue(any(s["label"]=="読書" for s in other))
         self.assertEqual(len(other),n)
         # 不正な予定が1つでもあれば何も書き込まない
@@ -324,7 +324,12 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(b.execute("SELECT COUNT(*) FROM logs").fetchone()[0],1);b.close()
         c=self.counts()
         self.assertEqual(c["weekly_plans"],len(app.default_weekly()))
-        self.assertEqual(c["themes"],3)      # サンプルテーマで上書きしない
+        self.assertEqual(c["themes"],8)      # サンプルで上書きしない（v4 で 哲学・LLM・通常研究・修論・論文調査 を追加）
+        with app.db() as con:
+            active={r[0] for r in con.execute("SELECT name FROM themes WHERE category='research' AND archived=0")}
+            archived={r[0] for r in con.execute("SELECT name FROM themes WHERE category='research' AND archived=1")}
+        self.assertEqual(active,{"通常研究","修論","論文調査"})
+        self.assertEqual(archived,{"DoNet"})  # 削除せずアーカイブ（過去の記録のテーマ名は残る）
         self.assertEqual(c["logs"],1)
         self.assertEqual(c["day_overrides"],1)
         self.assertEqual(c["place_logs"],0)  # 場所を推測して登録しない
@@ -343,7 +348,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(nov17["applied_pattern"],"輪読なし")
         self.assertEqual([p["name"] for p in app.get_day("2026-12-11")["patterns"]],["ゼミなし"])
         with app.db() as con:
-            self.assertEqual(con.execute("SELECT value FROM preferences WHERE key='schema_version'").fetchone()[0],"3")
+            self.assertEqual(con.execute("SELECT value FROM preferences WHERE key='schema_version'").fetchone()[0],"4")
             self.assertEqual(con.execute("SELECT COUNT(*) FROM day_patterns").fetchone()[0],2)
         self.assertEqual(app.get_day("2026-11-17")["preferences"]["timeline_start"],"06:00")
         # 再実行してもバックアップ・重複は発生しない
@@ -365,6 +370,34 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(app.get_day("2026-11-17")["applied_pattern"],"輪読なし")
         self.assertEqual(len(app.get_day("2026-11-20")["patterns"]),1)
         self.assertIsNone(app.init_db())
+
+    def test_migrate_v3_to_v4_renames_reading_and_dev(self):
+        app.init_db()
+        with app.db() as con:  # v3 の状態を再現（旧名称・テーマなし）
+            con.execute("UPDATE weekly_plans SET label='哲学（任意）' WHERE label='読書（任意）'")
+            con.execute("UPDATE weekly_plans SET label='LLM（任意）' WHERE label='個人開発（任意）'")
+            con.execute("UPDATE weekly_plans SET label='マージン（哲学・LLM・休息）' WHERE label LIKE 'マージン（読書%'")
+            for t in ("day_patterns","day_overrides"):
+                key="id" if t=="day_patterns" else "day"
+                for k,js in con.execute(f"SELECT {key},slots_json FROM {t}").fetchall():
+                    con.execute(f"UPDATE {t} SET slots_json=? WHERE {key}=?",(js.replace("読書（任意）","哲学（任意）").replace("個人開発（任意）","LLM（任意）"),k))
+            con.execute("DELETE FROM themes WHERE name IN ('哲学','LLM')")
+            con.execute("UPDATE preferences SET value='3' WHERE key='schema_version'")
+        self.assertIsNotNone(app.init_db())  # バックアップあり
+        with app.db() as con:
+            dump=" ".join(r[0] for r in con.execute("SELECT label FROM weekly_plans"))
+            dump+=" ".join(r[0] for r in con.execute("SELECT slots_json FROM day_patterns"))
+            dump+=" ".join(r[0] for r in con.execute("SELECT slots_json FROM day_overrides"))
+            themes={(r[0],r[1]) for r in con.execute("SELECT category,name FROM themes")}
+        self.assertNotIn("哲学（任意）",dump);self.assertNotIn("LLM（任意）",dump);self.assertNotIn("マージン（哲学",dump)
+        self.assertIn("読書（任意）",dump);self.assertIn("個人開発（任意）",dump)
+        self.assertIn(("philosophy","哲学"),themes);self.assertIn(("llm","LLM"),themes)
+        self.assertTrue({("research","通常研究"),("research","修論"),("research","論文調査")}<=themes)
+        # 移行後にユーザーが付けた旧名称は再起動で書き換えない
+        with app.db() as con:con.execute("UPDATE weekly_plans SET label='哲学（任意）' WHERE label='読書（任意）'")
+        self.assertIsNone(app.init_db())
+        with app.db() as con:
+            self.assertTrue(con.execute("SELECT 1 FROM weekly_plans WHERE label='哲学（任意）'").fetchone())
 
     def test_reset_exception_is_not_resurrected_on_restart(self):
         app.init_db()

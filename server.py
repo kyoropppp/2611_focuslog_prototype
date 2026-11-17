@@ -28,14 +28,14 @@ DATA_DIR = Path(os.environ.get("FOCUSLOG_DATA_DIR", str(_DEFAULT_DATA)))
 DB_PATH = DATA_DIR / "focuslog.db"
 STATIC_DIR = BASE / "static"
 DB_LOCK = threading.RLock()
-CATEGORIES = ("research", "philosophy", "llm")  # 集計の対象。テーマもこの3つ
+CATEGORIES = ("research", "philosophy", "llm")  # 集計の対象。テーマもこの3つ（表示名：研究・修論 / 読書 / 個人開発）
 OTHER_LOG_CATEGORIES = ("fixed", "break")      # 実績の活動として記録できるが、研究・哲学・LLMの集計には入れない
 LOG_CATEGORIES = CATEGORIES + OTHER_LOG_CATEGORIES
 # モデル予定の種類。種類によって「活動」段か「場所・移動」段かが決まる。
 ACTIVITY_PLAN_TYPES = ("research", "philosophy", "llm", "break", "fixed", "margin")
 PLACE_KINDS = ("home", "lab", "travel", "other")  # 自宅 / 研究室 / 移動中 / その他
 PLAN_TYPES = ACTIVITY_PLAN_TYPES + PLACE_KINDS
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 DURATION_SQL = """((CAST(SUBSTR(end,1,2) AS INTEGER)*60+CAST(SUBSTR(end,4,2) AS INTEGER))-
                    (CAST(SUBSTR(start,1,2) AS INTEGER)*60+CAST(SUBSTR(start,4,2) AS INTEGER)))"""
@@ -133,6 +133,8 @@ def init_db():
     移行の内容（変更前に data/backups/ へバックアップを作成）:
       v1→v2: place_logs（場所・移動の実績）テーブルを追加。既存の予定は書き換えない
              （kind=travel は「場所・移動」段として表示され、goal_minutes も維持）
+      v3→v4: 分野の表示名を 読書（philosophy）・個人開発（llm）に変更。予定名「哲学（任意）」「LLM（任意）」等を置き換え、
+             テーマ「哲学」（読書）・「LLM」（個人開発）を追加。研究のテーマを 通常研究/修論/論文調査 に整理（他はアーカイブ）
       v2→v3: day_patterns（曜日ごとの別パターン）を追加し、火曜「輪読なし」・金曜「ゼミなし」を登録。
              day_overrides に pattern_name 列を追加し、既存の 11/17（輪読なし）をパターン適用日として扱う
     """
@@ -211,15 +213,15 @@ def _create_and_seed(version):
         if con.execute("SELECT COUNT(*) FROM weekly_plans").fetchone()[0] == 0:
             con.executemany("INSERT INTO weekly_plans(weekday,start,end,label,kind,goal_minutes) VALUES (?,?,?,?,?,?)", default_weekly())
         if con.execute("SELECT COUNT(*) FROM themes").fetchone()[0] == 0:
-            samples = [("research", x) for x in ["DoNet", "Mask R-CNN", "修論執筆", "実画像評価"]]
-            samples += [("philosophy", x) for x in ["第二の性", "存在と無", "プラグマティズム"]]
-            samples += [("llm", x) for x in ["Transformer", "TinyStories", "論文輪読"]]
+            samples = [("research", x) for x in RESEARCH_THEMES]
+            samples += [("philosophy", x) for x in ["哲学", "第二の性", "存在と無", "プラグマティズム"]]
+            samples += [("llm", x) for x in ["LLM", "Transformer", "TinyStories", "論文輪読"]]
             con.executemany("INSERT INTO themes(category,name) VALUES (?,?)", samples)
         con.execute("INSERT OR IGNORE INTO preferences(key,value) VALUES ('timeline_start','07:00')")
         con.execute("INSERT OR IGNORE INTO preferences(key,value) VALUES ('timeline_end','23:00')")
         if "pattern_name" not in [r[1] for r in con.execute("PRAGMA table_info(day_overrides)")]:
             con.execute("ALTER TABLE day_overrides ADD COLUMN pattern_name TEXT")
-        rename_legacy_labels(con)
+        rename_legacy_labels(con, LEGACY_LABELS)
         # パターンの初期登録は v3 未満からの移行時（新規作成を含む）だけ。後から消したパターンを復活させない。
         if version < 3:
             for weekday, name, slots in default_patterns(con):
@@ -228,6 +230,17 @@ def _create_and_seed(version):
             # 既存の 11/17（輪読なし）はパターン適用日として扱う
             con.execute("""UPDATE day_overrides SET pattern_name='輪読なし'
                            WHERE day='2026-11-17' AND pattern_name IS NULL AND slots_json LIKE '%輪読なし%'""")
+        # v4: 哲学→読書、LLM→個人開発（一度だけ。以後ユーザーが付けた名前は変えない）
+        if version < 4:
+            rename_legacy_labels(con, V4_LABELS)
+            con.executemany("INSERT OR IGNORE INTO themes(category,name) VALUES (?,?)", [("philosophy", "哲学"), ("llm", "LLM")])
+            # 研究のテーマは「通常研究 / 修論 / 論文調査」に整理。他はアーカイブ（過去の記録のテーマ名は保持）
+            if (not con.execute("SELECT 1 FROM themes WHERE category='research' AND name='修論'").fetchone()
+                    and con.execute("SELECT 1 FROM themes WHERE category='research' AND name='修論執筆'").fetchone()):
+                con.execute("UPDATE themes SET name='修論' WHERE category='research' AND name='修論執筆'")
+            con.executemany("INSERT OR IGNORE INTO themes(category,name) VALUES ('research',?)", [(x,) for x in RESEARCH_THEMES])
+            marks = ",".join("?" * len(RESEARCH_THEMES))
+            con.execute(f"UPDATE themes SET archived=CASE WHEN name IN ({marks}) THEN 0 ELSE 1 END WHERE category='research'", RESEARCH_THEMES)
         # 2026/11/17 は輪読なし（初回作成時のみ。ユーザーが解除した例外を再起動で復活させない）
         if fresh and con.execute("SELECT COUNT(*) FROM day_overrides WHERE day='2026-11-17'").fetchone()[0] == 0:
             row = con.execute("SELECT id FROM day_patterns WHERE weekday=1 AND name='輪読なし'").fetchone()
@@ -240,19 +253,27 @@ def _create_and_seed(version):
 LEGACY_LABELS = {"通学（研究可能：最大1.5h）": "通学"}  # 研究目標は goal_minutes で表示するため名前から外した
 
 
-def rename_legacy_labels(con):
-    """初期データの旧名称を新名称に置き換える（毎週のモデル・日付ごとの例外の両方。何度実行しても同じ結果）。"""
-    for old, new in LEGACY_LABELS.items():
+RESEARCH_THEMES = ("通常研究", "修論", "論文調査")
+V4_LABELS = {"哲学（任意）": "読書（任意）", "LLM（任意）": "個人開発（任意）",
+             "マージン（哲学・LLM・休息）": "マージン（読書・個人開発・休息）"}
+
+
+def rename_legacy_labels(con, mapping):
+    """予定名の置き換え（毎週のモデル・日付ごとの変更・パターンのすべて。何度実行しても同じ結果）。"""
+    for old, new in mapping.items():
         con.execute("UPDATE weekly_plans SET label=? WHERE label=?", (new, old))
-    for row in con.execute("SELECT day,slots_json FROM day_overrides").fetchall():
-        slots = json.loads(row[1])
-        changed = False
-        for s in slots:
-            if s.get("label") in LEGACY_LABELS:
-                s["label"] = LEGACY_LABELS[s["label"]]
-                changed = True
-        if changed:
-            con.execute("UPDATE day_overrides SET slots_json=? WHERE day=?", (json.dumps(slots, ensure_ascii=False), row[0]))
+    for table, key in (("day_overrides", "day"), ("day_patterns", "id")):
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+            continue
+        for row in con.execute(f"SELECT {key},slots_json FROM {table}").fetchall():
+            slots = json.loads(row[1])
+            changed = False
+            for s in slots:
+                if s.get("label") in mapping:
+                    s["label"] = mapping[s["label"]]
+                    changed = True
+            if changed:
+                con.execute(f"UPDATE {table} SET slots_json=? WHERE {key}=?", (json.dumps(slots, ensure_ascii=False), row[0]))
 
 
 def default_patterns(con):
@@ -271,9 +292,9 @@ def default_patterns(con):
         ("10:00", "12:30", "研究・修論", "research", 150),
         ("12:30", "13:30", "昼食", "break", 0),
         ("13:30", "14:30", "研究・修論", "research", 60),
-        ("14:30", "18:00", "哲学（任意）", "philosophy", 0),
+        ("14:30", "18:00", "読書（任意）", "philosophy", 0),
         ("18:00", "18:30", "休憩", "break", 0),
-        ("18:30", "21:00", "LLM（任意）", "llm", 0),
+        ("18:30", "21:00", "個人開発（任意）", "llm", 0),
     ]]
     return [(1, "輪読なし", tuesday), (4, "ゼミなし", friday)]
 
@@ -316,13 +337,13 @@ def default_weekly():
         add(w,"10:00","12:00","研究・修論","research",120)
         add(w,"12:00","13:00","昼食","break")
         add(w,"13:00","18:00","オンラインバイト","fixed")
-        add(w,"18:00","21:00","マージン（哲学・LLM・休息）","margin")
+        add(w,"18:00","21:00","マージン（読書・個人開発・休息）","margin")
     add(0,"21:00","23:00","講師MTG","fixed")
     for a,b,label,kind,goal in [
         ("08:00","10:00","通学","travel",90),
         ("10:00","12:00","LLM輪読","fixed",0),
         ("12:00","14:00","昼食会","break",0),
-        ("14:00","16:00","哲学（任意）","philosophy",0),
+        ("14:00","16:00","読書（任意）","philosophy",0),
         ("16:00","18:00","帰宅","travel",0),
     ]: add(1,a,b,label,kind,goal)
     add(3,"07:00","11:00","研究・修論","research",240)
@@ -333,7 +354,7 @@ def default_weekly():
         ("08:00","10:00","通学","travel",90),
         ("10:00","13:30","研究・修論","research",210),
         ("13:30","14:30","昼食","break",0),
-        ("14:30","16:30","哲学（任意）","philosophy",0),
+        ("14:30","16:30","読書（任意）","philosophy",0),
         ("16:30","17:00","マージン","margin",0),
         ("17:00","20:00","ゼミ","fixed",0),
         ("20:00","22:00","帰宅","travel",0),
@@ -344,11 +365,11 @@ def default_weekly():
         add(w,"10:00","12:30","研究・修論","research",150)
         add(w,"12:30","13:30","昼食","break")
         add(w,"13:30","14:30","研究・修論","research",60)
-    add(5,"14:30","18:00","哲学（任意）","philosophy")
+    add(5,"14:30","18:00","読書（任意）","philosophy")
     add(5,"18:00","18:30","休憩","break")
-    add(5,"18:30","21:00","LLM（任意）","llm")
-    add(6,"14:30","17:00","哲学（任意）","philosophy")
-    add(6,"17:00","19:00","LLM（任意）","llm")
+    add(5,"18:30","21:00","個人開発（任意）","llm")
+    add(6,"14:30","17:00","読書（任意）","philosophy")
+    add(6,"17:00","19:00","個人開発（任意）","llm")
     add(6,"19:00","21:00","休息・翌週の準備","margin")
     return rows
 
@@ -542,7 +563,7 @@ def validate_log(payload):
     duration(start,end)
     category=payload.get("category")
     if category not in LOG_CATEGORIES:
-        raise BadRequest("実績の分野は研究・哲学・LLM・固定予定・休憩のいずれかにしてください。")
+        raise BadRequest("実績の分野は研究・読書・個人開発・固定予定・休憩のいずれかにしてください。")
     other=category in OTHER_LOG_CATEGORIES
     # 固定予定・休憩はテーマなし、作業内容は任意
     theme="" if other else short_text(payload.get("theme", ""),"テーマ",100,False)
@@ -753,7 +774,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not path.startswith("/api/"):
             return super().do_GET()
         try:
-            if path=="/api/health":return self.reply_json({"ok":True,"app":"FocusLog","version":"0.4.0"})
+            if path=="/api/health":return self.reply_json({"ok":True,"app":"FocusLog","version":"0.5.0"})
             if path=="/api/day":return self.reply_json(get_day(q.get("date",[date.today().isoformat()])[0]))
             if path=="/api/themes":return self.reply_json(get_themes())
             if path=="/api/summary":

@@ -1,12 +1,12 @@
 "use strict";
 
 const $ = id => document.getElementById(id);
-const CATEGORIES = { research: "研究・修論", philosophy: "哲学", llm: "LLM" };  // 集計対象（テーマあり）
-const LOG_CATEGORIES = { ...CATEGORIES, fixed:"固定予定", break:"休憩・食事" };  // 実績の活動で選べる分野
+const CATEGORIES = { research: "研究・修論", philosophy: "読書", llm: "個人開発" };  // 集計対象（テーマあり）
+const LOG_CATEGORIES = { ...CATEGORIES, fixed:"固定予定", break:"休憩" };  // 実績の活動で選べる分野
 const isOtherCategory = c => c==="fixed"||c==="break";
 const logLabel = log => log.theme||log.content||LOG_CATEGORIES[log.category]||"";
 const PLACES = { home:"自宅", lab:"研究室", travel:"移動中", other:"その他" };
-const PLAN_TYPES = { research:"研究・修論",philosophy:"哲学（任意）",llm:"LLM（任意）",fixed:"固定予定",break:"休憩・食事",margin:"マージン",...PLACES };
+const PLAN_TYPES = { research:"研究・修論",philosophy:"読書（任意）",llm:"個人開発（任意）",fixed:"固定予定",break:"休憩",margin:"マージン",...PLACES };
 const isPlaceKind = k => Object.prototype.hasOwnProperty.call(PLACES,k);
 const planName = s => s.label || PLAN_TYPES[s.kind] || "予定";
 const WEEKDAYS = ["月","火","水","木","金","土","日"];
@@ -114,6 +114,10 @@ function init(){
   $("delete-log").addEventListener("click",deleteLog);
   ["log-start","log-end","log-day"].forEach(id=>$(id).addEventListener("input",updateLogValidation));
   $("log-category").addEventListener("change",refreshThemeSuggestions);
+  // 分野はボタンで選ぶ（値は隠した select に保持）
+  document.querySelectorAll("#log-category-buttons button").forEach(b=>b.addEventListener("click",()=>{
+    $("log-category").value=b.dataset.category;refreshThemeSuggestions();
+  }));
   $("plan-form").addEventListener("submit",savePlan);
   $("delete-plan").addEventListener("click",deletePlan);
   $("plan-kind").addEventListener("change",updatePlanKindFields);
@@ -401,6 +405,9 @@ function renderLogs(){
 async function loadThemes(){state.themes=await api("/api/themes");refreshThemeSuggestions();renderThemes();}
 function refreshThemeSuggestions(){
   const sel=$("log-category").value;
+  document.querySelectorAll("#log-category-buttons button").forEach(b=>{
+    const on=b.dataset.category===sel;b.classList.toggle("active",on);b.setAttribute("aria-checked",String(on));
+  });
   // 固定予定・休憩はテーマなし・作業内容は任意
   const other=isOtherCategory(sel);
   $("log-theme-field").hidden=other;$("log-content").required=!other;$("log-content-optional").hidden=!other;
@@ -680,13 +687,13 @@ function renderSummary(){
     const sum=d.research+d.philosophy+d.llm;
     const parts=["research","philosophy","llm"].map(k=>`<span style="width:${(d[k]/maximum*100).toFixed(3)}%;background:var(--${k})" title="${escapeHTML(CATEGORIES[k])} ${fmtMinutes(d[k])}"></span>`).join("");
     return `<div class="day-chart-row"><div class="chart-day">${WEEKDAYS[d.weekday]}曜日<small>${fmtDay(d.day,true)}</small></div><div class="chart-bar-bg"><div class="chart-bar-stack">${parts}</div><div class="chart-target" style="left:${(d.research_goal/maximum*100).toFixed(3)}%" title="研究のモデル：${fmtMinutes(d.research_goal)}"></div></div><div class="chart-total">${fmtMinutes(sum)}</div></div>`;
-  }).join("")+`<div class="summary-legend"><span><i class="category-dot research"></i> 研究</span><span><i class="category-dot philosophy"></i> 哲学</span><span><i class="category-dot llm"></i> LLM</span><span>┆ 研究の予定時間</span></div>`;
+  }).join("")+`<div class="summary-legend"><span><i class="category-dot research"></i> 研究</span><span><i class="category-dot philosophy"></i> 読書</span><span><i class="category-dot llm"></i> 個人開発</span><span>┆ 研究の予定時間</span></div>`;
   const tp=data.total.places||{};
   const placeParts=Object.keys(PLACES).filter(k=>tp[k]).map(k=>`<span><i class="category-dot place-${k}"></i>${PLACES[k]} ${fmtMinutes(tp[k])}</span>`);
   const t=data.total;
   const otherParts=["fixed","break"].filter(k=>t[k]).map(k=>`<span><i class="category-dot ${k}"></i>${LOG_CATEGORIES[k]} ${fmtMinutes(t[k])}</span>`);
   $("summary-places").innerHTML=[
-    otherParts.length?`<div class="summary-line"><b>その他の実績</b>${otherParts.join("")}<small>研究・哲学・LLMには加算していません</small></div>`:"",
+    otherParts.length?`<div class="summary-line"><b>その他の実績</b>${otherParts.join("")}<small>研究・読書・個人開発には加算していません</small></div>`:"",
     placeParts.length?`<div class="summary-line"><b>場所・移動の実績</b>${placeParts.join("")}<small>活動時間には加算していません</small></div>`:"",
   ].join("");
 }

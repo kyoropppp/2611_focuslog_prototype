@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0d121b">
-  <meta name="description" content="研究・哲学・LLMのモデル時間割と実績を記録する個人用Webアプリ">
+  <meta name="description" content="研究・読書・個人開発のモデル時間割と実績を記録する個人用Webアプリ">
   <title>FocusLog | 研究・読書の時間割</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/styles.css">
@@ -60,8 +60,8 @@
 
       <div class="metrics" aria-label="当日の実績集計">
         <article class="metric card"><div class="metric-label"><span class="category-dot research"></span>研究・修論</div><div class="metric-body"><strong id="metric-research">0h 00m</strong><span id="metric-research-plan">予定 0h</span></div><div class="metric-foot" id="metric-research-diff">—</div></article>
-        <article class="metric card"><div class="metric-label"><span class="category-dot philosophy"></span>哲学</div><div class="metric-body"><strong id="metric-philosophy">0h 00m</strong><span>任意</span></div><div class="metric-foot">実績のみ記録</div></article>
-        <article class="metric card"><div class="metric-label"><span class="category-dot llm"></span>LLM</div><div class="metric-body"><strong id="metric-llm">0h 00m</strong><span>任意</span></div><div class="metric-foot">実績のみ記録</div></article>
+        <article class="metric card"><div class="metric-label"><span class="category-dot philosophy"></span>読書</div><div class="metric-body"><strong id="metric-philosophy">0h 00m</strong><span>任意</span></div><div class="metric-foot">実績のみ記録</div></article>
+        <article class="metric card"><div class="metric-label"><span class="category-dot llm"></span>個人開発</div><div class="metric-body"><strong id="metric-llm">0h 00m</strong><span>任意</span></div><div class="metric-foot">実績のみ記録</div></article>
       </div>
 
       <section class="card timeline-card" aria-labelledby="timeline-heading">
@@ -76,8 +76,8 @@
         <div class="legend" aria-label="凡例">
           <div class="legend-group"><b>活動</b>
             <span><i class="category-dot research"></i>研究</span>
-            <span><i class="category-dot philosophy"></i>哲学</span>
-            <span><i class="category-dot llm"></i>LLM</span>
+            <span><i class="category-dot philosophy"></i>読書</span>
+            <span><i class="category-dot llm"></i>個人開発</span>
             <span><i class="category-dot fixed"></i>固定予定</span>
             <span><i class="category-dot margin"></i>マージン</span>
             <span><i class="category-dot break"></i>休憩</span>
@@ -134,11 +134,11 @@
       <div class="week-nav card"><button id="prev-week" class="icon-button" aria-label="前の週"><svg class="icon"><use href="#i-chevron-left"/></svg></button><button id="next-week" class="icon-button" aria-label="次の週"><svg class="icon"><use href="#i-chevron-right"/></svg></button><strong id="week-label">—</strong><button id="current-week" class="btn btn-subtle btn-small">今週</button></div>
       <div class="metrics metrics-summary">
         <article class="metric card"><div class="metric-label"><span class="category-dot research"></span>研究・修論</div><div class="metric-body"><strong id="summary-research">—</strong></div><div class="metric-foot" id="summary-research-diff">—</div></article>
-        <article class="metric card"><div class="metric-label"><span class="category-dot philosophy"></span>哲学</div><div class="metric-body"><strong id="summary-philosophy">—</strong></div><div class="metric-foot">任意の学習</div></article>
-        <article class="metric card"><div class="metric-label"><span class="category-dot llm"></span>LLM</div><div class="metric-body"><strong id="summary-llm">—</strong></div><div class="metric-foot">任意の学習</div></article>
+        <article class="metric card"><div class="metric-label"><span class="category-dot philosophy"></span>読書</div><div class="metric-body"><strong id="summary-philosophy">—</strong></div><div class="metric-foot">任意の学習</div></article>
+        <article class="metric card"><div class="metric-label"><span class="category-dot llm"></span>個人開発</div><div class="metric-body"><strong id="summary-llm">—</strong></div><div class="metric-foot">任意の学習</div></article>
       </div>
-      <section class="card summary-card"><div class="card-head"><div><h2>曜日別の作業時間</h2><p>研究・哲学・LLMの積み上げ表示。研究の予定時間も併記します。</p></div></div><div id="summary-chart" class="summary-chart"></div><div id="summary-places" class="summary-places"></div></section>
-      <section class="card summary-card"><div class="card-head"><div><h2>集計の考え方</h2></div></div><p class="explain">研究の予定時間には、モデルの「研究」枠と、移動中に確保できると見込んだ研究目標（例：通学2時間のうち90分）が含まれます。研究目標は時刻を決めた予定ではありません。実際の研究・哲学・LLMの時間は「活動」の実績だけから集計し、場所・移動の時間は加算しません。移動中に研究した場合は、移動（場所）と研究（活動）をそれぞれ記録してください。哲学・LLMは任意の活動として扱うため、未実施でも未達警告は表示しません。</p></section>
+      <section class="card summary-card"><div class="card-head"><div><h2>曜日別の作業時間</h2><p>研究・読書・個人開発の積み上げ表示。研究の予定時間も併記します。</p></div></div><div id="summary-chart" class="summary-chart"></div><div id="summary-places" class="summary-places"></div></section>
+      <section class="card summary-card"><div class="card-head"><div><h2>集計の考え方</h2></div></div><p class="explain">研究の予定時間には、モデルの「研究」枠と、移動中に確保できると見込んだ研究目標（例：通学2時間のうち90分）が含まれます。研究目標は時刻を決めた予定ではありません。実際の研究・読書・個人開発の時間は「活動」の実績だけから集計し、場所・移動の時間は加算しません。移動中に研究した場合は、移動（場所）と研究（活動）をそれぞれ記録してください。読書・個人開発は任意の活動として扱うため、未実施でも未達警告は表示しません。</p></section>
     </section>
 
     <section id="settings-view" class="view" aria-labelledby="settings-heading">
@@ -151,7 +151,7 @@
       <section class="card settings-card">
         <h2>テーマの管理</h2><p class="muted">テーマ名は変更できます。使わなくなったテーマはアーカイブし、過去の実績を保持します。</p>
         <div class="theme-filters" role="group" aria-label="テーマのカテゴリ">
-          <button class="filter-chip active" data-category="research">研究・修論</button><button class="filter-chip" data-category="philosophy">哲学</button><button class="filter-chip" data-category="llm">LLM</button>
+          <button class="filter-chip active" data-category="research">研究・修論</button><button class="filter-chip" data-category="philosophy">読書</button><button class="filter-chip" data-category="llm">個人開発</button>
         </div>
         <div id="theme-list" class="theme-list"></div>
         <form id="new-theme-form" class="new-theme-form"><label class="sr-only" for="new-theme">新しいテーマ</label><input id="new-theme" placeholder="新しいテーマ名" maxlength="100" required><button type="submit" class="btn btn-outline"><svg class="icon"><use href="#i-plus"/></svg>追加</button></form>
@@ -170,7 +170,16 @@
       <div class="modal-body">
         <div class="field"><label for="log-day">日付</label><input id="log-day" type="date" required></div>
         <div class="form-grid"><div class="field"><label for="log-start">開始時刻</label><input id="log-start" type="time" required step="60"></div><div class="field"><label for="log-end">終了時刻</label><input id="log-end" type="time" required step="60"></div></div>
-        <div class="field"><label for="log-category">分野</label><select id="log-category" required><option value="research">研究・修論</option><option value="philosophy">哲学</option><option value="llm">LLM</option><option value="fixed">固定予定（バイト・ゼミなど）</option><option value="break">休憩・食事</option></select></div>
+        <div class="field"><span class="field-label" id="log-category-label">分野</span>
+          <div class="category-buttons" id="log-category-buttons" role="radiogroup" aria-labelledby="log-category-label">
+            <button type="button" role="radio" data-category="research"><i class="category-dot research"></i>研究</button>
+            <button type="button" role="radio" data-category="philosophy"><i class="category-dot philosophy"></i>読書</button>
+            <button type="button" role="radio" data-category="llm"><i class="category-dot llm"></i>個人開発</button>
+            <button type="button" role="radio" data-category="fixed" title="バイト・ゼミなど"><i class="category-dot fixed"></i>固定</button>
+            <button type="button" role="radio" data-category="break"><i class="category-dot break"></i>休憩</button>
+          </div>
+          <select id="log-category" hidden aria-hidden="true" tabindex="-1"><option value="research">研究・修論</option><option value="philosophy">読書</option><option value="llm">個人開発</option><option value="fixed">固定予定</option><option value="break">休憩</option></select>
+        </div>
         <div class="field" id="log-theme-field"><label for="log-theme">テーマ <span class="field-optional">任意</span></label><input id="log-theme" list="theme-suggestions" maxlength="100" placeholder="例：DoNet / 第二の性"><datalist id="theme-suggestions"></datalist><p class="field-hint">新しいテーマ名を入力すると、保存時に自動登録されます。</p></div>
         <div class="field"><label for="log-content">作業内容 <span class="field-optional" id="log-content-optional" hidden>任意</span></label><textarea id="log-content" required maxlength="500" rows="3" placeholder="例：DRMの損失関数を実装"></textarea></div>
         <div class="field"><label for="log-memo">メモ <span class="field-optional">任意</span></label><textarea id="log-memo" maxlength="2000" rows="2" placeholder="気づき・次回の課題"></textarea></div>
@@ -187,7 +196,7 @@
       <div class="modal-body">
         <div class="form-grid"><div class="field"><label for="plan-start">開始時刻</label><input id="plan-start" type="time" required></div><div class="field"><label for="plan-end">終了時刻</label><input id="plan-end" type="time" required></div></div>
         <div class="field"><label for="plan-kind">種類</label><select id="plan-kind">
-          <optgroup label="活動"><option value="research">研究・修論</option><option value="philosophy">哲学（任意）</option><option value="llm">LLM（任意）</option><option value="fixed">固定予定</option><option value="break">休憩・食事</option><option value="margin">マージン</option></optgroup>
+          <optgroup label="活動"><option value="research">研究・修論</option><option value="philosophy">読書（任意）</option><option value="llm">個人開発（任意）</option><option value="fixed">固定予定</option><option value="break">休憩</option><option value="margin">マージン</option></optgroup>
           <optgroup label="場所・移動"><option value="home">自宅</option><option value="lab">研究室</option><option value="travel">移動中</option><option value="other">その他</option></optgroup>
         </select></div>
         <div class="field"><label for="plan-label"><span id="plan-label-text">予定名</span> <span class="field-optional" id="plan-label-optional" hidden>任意</span></label><input id="plan-label" maxlength="100" required placeholder="例：研究・修論"></div>
@@ -232,12 +241,12 @@
     <header class="modal-header"><div><div class="eyebrow">MODEL</div><h2 id="choice-title">予定</h2><p class="choice-sub" id="choice-sub"></p></div><button type="button" class="icon-button" data-close-dialog="choice-dialog" aria-label="閉じる"><svg class="icon"><use href="#i-x"/></svg></button></header>
     <div class="choice-list">
       <button type="button" class="choice-item" id="choice-place"><i class="category-dot place-travel"></i><span>場所・移動の実績を追加<small>この予定の時刻を初期値にします</small></span></button>
-      <button type="button" class="choice-item" id="choice-activity"><i class="category-dot research"></i><span>活動の実績を追加<small>研究・哲学・LLMから選べます</small></span></button>
+      <button type="button" class="choice-item" id="choice-activity"><i class="category-dot research"></i><span>活動の実績を追加<small>研究・読書・個人開発から選べます</small></span></button>
       <button type="button" class="choice-item" id="choice-edit"><svg class="icon"><use href="#i-edit"/></svg><span>モデル予定を編集<small>この日だけ／毎週この曜日</small></span></button>
     </div>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-  <footer class="app-footer">FocusLog prototype v0.4 · データは起動中のPCに保存されます</footer>
+  <footer class="app-footer">FocusLog prototype v0.5 · データは起動中のPCに保存されます</footer>
 </body>
 </html>

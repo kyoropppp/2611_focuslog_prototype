@@ -229,3 +229,11 @@ textarea{resize:vertical;min-height:70px;line-height:1.65}.settings-time-form in
 
 .summary-places{flex-direction:column;align-items:flex-start}
 .summary-line{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}.summary-line span{display:flex;align-items:center;gap:6px}
+
+/* 実績の分野ボタン */
+.field-label{font-size:12px;color:#cbd5e5;font-weight:650}
+.category-buttons{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.category-buttons button{display:flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:6px 4px;border:1px solid #34465d;border-radius:9px;background:#1b2839;color:#c3d1e3;font-size:12px;font-weight:650;white-space:nowrap}
+.category-buttons button:hover{background:#24364c}
+.category-buttons button.active{background:#24405f;border-color:#6f9be6;color:#fff;box-shadow:inset 0 0 0 1px #6f9be6}
+@media(max-width:620px){.category-buttons{gap:4px}.category-buttons button{font-size:11px;gap:4px;min-height:38px}.category-buttons .category-dot{width:7px;height:7px}}
