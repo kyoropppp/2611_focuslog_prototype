@@ -181,6 +181,53 @@ class ApplicationTests(unittest.TestCase):
         with self.assertRaises(app.BadRequest):app.apply_pattern({"date":"2026-12-10","pattern_id":pid})  # 木曜には適用不可
         with self.assertRaises(app.BadRequest):app.apply_pattern({"date":day,"pattern_id":9999})
 
+    # ---- 編集モード：まとめて保存 ----
+    def test_bulk_replace_date_scope(self):
+        day="2027-01-06"  # 水曜
+        slots=app.get_day(day)["plan"]
+        slots[0]={**slots[0],"end":"09:00","goal_minutes":120}                 # 研究 7:00-9:30 → 7:00-9:00
+        slots=[s for s in slots if s["label"]!="休憩"]                         # 削除
+        slots.append({"start":"21:00","end":"22:00","label":"","kind":"home","goal_minutes":0})  # 追加（場所）
+        d=app.replace_plans({"date":day,"scope":"date","slots":slots})
+        self.assertEqual(d["plan_source"],"override")
+        self.assertTrue(any(s["start"]=="07:00" and s["end"]=="09:00" and s["goal_minutes"]==120 for s in d["plan"]))
+        self.assertFalse(any(s["label"]=="休憩" for s in d["plan"]))
+        self.assertTrue(any(s["kind"]=="home" and s["lane"]=="place" for s in d["plan"]))
+        self.assertEqual(len({s["id"] for s in d["plan"]}),len(d["plan"]))
+        self.assertTrue(any(s["label"]=="休憩" for s in app.get_day("2027-01-13")["plan"]))  # 他の水曜は不変
+        with self.assertRaises(app.BadRequest):  # 毎週としては保存できない（この日は変更済み）
+            app.replace_plans({"date":day,"scope":"weekly","slots":slots})
+        app.reset_day(day)
+
+    def test_bulk_replace_weekly_scope_and_validation(self):
+        day="2027-01-02"  # 土曜
+        before=app.get_day(day)["plan"]
+        n=len(before)
+        slots=[{**s,"end":"10:00","goal_minutes":180} if s["start"]=="07:00" else s for s in before if s["label"]!="LLM（任意）"]
+        slots.append({"start":"21:00","end":"22:00","label":"読書","kind":"philosophy","goal_minutes":0})
+        d=app.replace_plans({"date":day,"scope":"weekly","slots":slots})
+        self.assertEqual(d["plan_source"],"weekly")
+        other=app.get_day("2027-01-09")["plan"]  # 次の土曜にも反映
+        self.assertTrue(any(s["start"]=="07:00" and s["end"]=="10:00" for s in other))
+        self.assertFalse(any(s["label"]=="LLM（任意）" for s in other))
+        self.assertTrue(any(s["label"]=="読書" for s in other))
+        self.assertEqual(len(other),n)
+        # 不正な予定が1つでもあれば何も書き込まない
+        bad=other+[{"start":"12:00","end":"11:00","label":"x","kind":"research"}]
+        with self.assertRaises(app.BadRequest):app.replace_plans({"date":day,"scope":"weekly","slots":bad})
+        self.assertEqual(len(app.get_day(day)["plan"]),n)
+        with self.assertRaises(app.BadRequest):app.replace_plans({"date":day,"scope":"month","slots":[]})
+        app.replace_plans({"date":day,"scope":"weekly","slots":before})  # 元に戻す
+
+    def test_bulk_keeps_pattern_name(self):
+        day="2027-01-08"  # 金曜
+        pid=app.get_day(day)["patterns"][0]["id"]
+        d=app.apply_pattern({"date":day,"pattern_id":pid})
+        slots=[{**s,"end":"09:00","goal_minutes":120} if s["start"]=="07:00" else s for s in d["plan"]]
+        d=app.replace_plans({"date":day,"scope":"date","slots":slots})
+        self.assertEqual(d["applied_pattern"],"ゼミなし")
+        app.reset_day(day)
+
     def test_http_place_logs_and_exports(self):
         import threading, urllib.request
         from http.server import ThreadingHTTPServer

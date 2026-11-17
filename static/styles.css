@@ -178,3 +178,34 @@ textarea{resize:vertical;min-height:70px;line-height:1.65}.settings-time-form in
 .timeline-footer-actions{display:flex;align-items:center;gap:6px 14px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
 #pattern-switch{display:contents}
 @media(max-width:620px){.timeline-footer{flex-wrap:wrap}.timeline-footer-actions{justify-content:flex-start;margin-left:0}}
+
+/* ---- 編集モード ---- */
+.edit-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
+.edit-actions .btn .icon{width:14px;height:14px}
+#day-view>*{transition:opacity .2s}
+#day-view.editing .day-nav,#day-view.editing .metrics,#day-view.editing #place-card,#day-view.editing .activity-card,#day-view.editing .page-head{opacity:.35;pointer-events:none}
+#day-view.editing .timeline-card{border-color:#4f78c4;box-shadow:0 0 0 1px #4f78c455,0 10px 40px #0a142a}
+#day-view.editing .log-part{opacity:.28;pointer-events:none}
+#day-view.editing .timeline-group.group-model{background:#5281de1c;border-top-color:#5d8be3}
+#day-view.editing .gutter-group.group-model{color:#cfe0ff}
+#day-view.editing .timeline-footer{background:#172238;color:#b9cdf0}
+.timeline-block.editable{cursor:pointer;box-shadow:inset 0 0 0 1px #ffffff40}
+.resize-handle{position:absolute;top:0;bottom:0;width:10px;cursor:ew-resize;touch-action:none;z-index:2}
+.resize-handle.start{left:-1px;border-radius:8px 0 0 8px}.resize-handle.end{right:-1px;border-radius:0 8px 8px 0}
+.resize-handle::after{content:"";position:absolute;top:28%;bottom:28%;left:4px;width:2px;border-radius:2px;background:#ffffffb0;opacity:.55}
+.timeline-block.editable:hover .resize-handle::after,.timeline-block.resizing .resize-handle::after{opacity:1}
+.resize-handle:hover{background:#ffffff26}
+.timeline-block.resizing{z-index:20;outline:2px solid #e4ecff;transform:none!important;overflow:visible;transition:none}
+.resize-tip{position:absolute;top:-26px;left:50%;transform:translateX(-50%);background:#0b1220;border:1px solid #4f78c4;color:#e3eeff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;pointer-events:none}
+.btn.attention{animation:attention 1.6s ease-in-out infinite}
+@keyframes attention{0%,100%{box-shadow:0 0 0 0 #6695eb00}50%{box-shadow:0 0 0 5px #6695eb55}}
+.save-plan-note{padding:4px 14px 8px;margin:0}
+.choice-item:disabled{opacity:.4;cursor:not-allowed}.choice-item:disabled:hover{background:transparent}
+@media(max-width:620px){.resize-handle{width:16px}.edit-actions{justify-content:flex-start;margin-left:0}}
+@media(prefers-reduced-motion:reduce){.btn.attention{animation:none}}
+
+/* 更新ボタン（右上） */
+.reload-button{flex:none}
+.topbar-right+.reload-button{margin-left:-34px}
+@media(max-width:840px){.reload-button{margin-left:6px}}
+@media(max-width:620px){.topbar-inner{position:relative}.reload-button{position:absolute;top:10px;right:12px;width:32px;height:32px}}

@@ -21,6 +21,7 @@ const state = {
   placeEditingId:null,
   planEditing:null,
   choiceSlot:null,
+  edit:null,  // 編集モードの下書き {slots, orig, history}
   showPlaces:loadShowPlaces(),
   toastTimeout:null,
   navigationSerial:0,
@@ -80,7 +81,19 @@ function init(){
   $("date-input").addEventListener("change",e=>{if(e.target.value)switchDay(e.target.value);});
   $("add-log").addEventListener("click",()=>openLogDialog());
   $("add-log-inline").addEventListener("click",()=>openLogDialog());
-  $("add-plan").addEventListener("click",()=>openPlanDialog());
+  $("add-plan").addEventListener("click",enterEdit);
+  // アプリのウィンドウでは Ctrl+F5 が効かないため、画面に更新ボタンを置く
+  $("reload-app").addEventListener("click",()=>{
+    if(state.edit&&draftChangeCount()>0&&!confirm("保存していない変更があります。破棄して更新しますか？"))return;
+    state.edit=null;location.reload();
+  });
+  $("edit-exit").addEventListener("click",()=>exitEdit());
+  $("edit-undo").addEventListener("click",undoEdit);
+  $("edit-add").addEventListener("click",()=>openPlanDialog());
+  $("edit-save").addEventListener("click",openSavePlanDialog);
+  $("save-plan-date").addEventListener("click",()=>saveDraft("date"));
+  $("save-plan-weekly").addEventListener("click",()=>saveDraft("weekly"));
+  window.addEventListener("beforeunload",e=>{if(state.edit&&draftChangeCount()>0){e.preventDefault();e.returnValue="";}});
   $("add-place-inline").addEventListener("click",()=>openPlaceDialog());
   $("toggle-places").checked=state.showPlaces;
   $("toggle-places").addEventListener("change",e=>setShowPlaces(e.target.checked));
@@ -129,6 +142,7 @@ function setView(view){
 }
 async function switchDay(day){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return;
+  if(state.edit&&!exitEdit())return;
   state.selectedDate=day;
   await loadDay(false);
 }
@@ -146,7 +160,8 @@ function renderDay(keepScroll=false){
   $("date-input").value=data.date;
   $("day-plan-state").textContent=data.applied_pattern?`パターン：${data.applied_pattern}`:data.plan_source==="override"?"この日だけ変更":"いつもの予定";
   renderPatternSwitch();
-  const researchPlan=data.plan.reduce((s,x)=>s+(Number(x.goal_minutes)||0),0);
+  renderEditState();
+  const researchPlan=currentPlan().reduce((s,x)=>s+(Number(x.goal_minutes)||0),0);
   const totals={research:0,philosophy:0,llm:0};
   for(const log of data.logs)totals[log.category]+=timeLength(log);
   $("metric-research").textContent=fmtMinutes(totals.research);
@@ -242,8 +257,8 @@ function renderTimeline(keepScroll=false){
   // ---- 4段のレイアウト（場所・移動の段は非表示にできる） ----
   const lanesOf=items=>{const l=partitionOverlapping(items);return {items:l,count:Math.max(1,...l.map(x=>x.row+1))};};
   const L={
-    planPlace:lanesOf(data.plan.filter(s=>s.lane==="place")),
-    planAct:lanesOf(data.plan.filter(s=>s.lane!=="place")),
+    planPlace:lanesOf(currentPlan().filter(s=>s.lane==="place")),
+    planAct:lanesOf(currentPlan().filter(s=>s.lane!=="place")),
     logPlace:lanesOf(data.place_logs||[]),
     logAct:lanesOf(data.logs),
   };
@@ -266,10 +281,11 @@ function renderTimeline(keepScroll=false){
 
   // グループの背景帯と、左端に固定したラベル列
   for(const g of groups){
-    el("div",`timeline-group group-${g.key}`,null,{top:`${g.top-4}px`,height:`${g.bottom-g.top+6}px`,width:`${width}px`});
-    el("div",`gutter-group group-${g.key}`,g.title,{top:`${g.top}px`},gutter);
+    const part=g.key==="log"?" log-part":" plan-part";
+    el("div",`timeline-group group-${g.key}${part}`,null,{top:`${g.top-4}px`,height:`${g.bottom-g.top+6}px`,width:`${width}px`});
+    el("div",`gutter-group group-${g.key}${part}`,g.title,{top:`${g.top}px`},gutter);
   }
-  for(const r of rows)el("div","gutter-row",r.label,{top:`${r.top}px`,height:`${r.height}px`},gutter);
+  for(const r of rows)el("div",`gutter-row ${r.key.startsWith("log")?"log-part":"plan-part"}`,r.label,{top:`${r.top}px`,height:`${r.height}px`},gutter);
 
   // 時刻の目盛り
   for(let t=Math.ceil(start/60)*60;t<=end;t+=60){
@@ -284,7 +300,7 @@ function renderTimeline(keepScroll=false){
   // 各段の空白：クリックした時刻（15分単位で切り捨て）から1時間の新規登録
   const ROW_HINT={planPlace:"クリックで場所・移動の予定を追加",planAct:"クリックで活動の予定を追加",logPlace:"クリックで場所・移動を記録",logAct:"クリックで活動の実績を追加"};
   for(const r of rows){
-    const area=el("div","timeline-placeholder clickable",null,{left:"0px",top:`${r.top}px`,height:`${r.height}px`,width:`${width}px`});
+    const area=el("div",`timeline-placeholder clickable ${r.key.startsWith("log")?"log-part":"plan-part"}`,null,{left:"0px",top:`${r.top}px`,height:`${r.height}px`,width:`${width}px`});
     area.title=ROW_HINT[r.key];
     area.addEventListener("click",e=>{
       const x=e.clientX-area.getBoundingClientRect().left;
@@ -296,7 +312,7 @@ function renderTimeline(keepScroll=false){
       else openPlanDialog(null,{...slot,lane:r.key==="planPlace"?"place":"activity"});
     });
     if((r.key==="logAct"||r.key==="logPlace")&&!r.lanes.items.length)
-      el("span","row-empty-hint",r.key==="logAct"?"空白をクリックして活動を記録":"空白をクリックして場所・移動を記録",{top:`${r.top+r.height/2}px`});
+      el("span","row-empty-hint log-part",r.key==="logAct"?"空白をクリックして活動を記録":"空白をクリックして場所・移動を記録",{top:`${r.top+r.height/2}px`});
   }
 
   // 移動中の研究目標：時刻未指定なので、移動の時間帯全体に点線の枠で示す（確定した作業予定としては描かない）
@@ -311,7 +327,7 @@ function renderTimeline(keepScroll=false){
       const main=document.createElement("span");main.className="block-name";main.textContent=`研究目標 ${s.goal_minutes}分`;g.appendChild(main);
       if(w>102){const sub=document.createElement("small");sub.textContent="時刻未指定";g.appendChild(sub);}
     }
-    g.addEventListener("click",()=>openChoice(s));
+    g.addEventListener("click",()=>state.edit?openPlanDialog(s):openChoice(s));
   }
 
   function makeBlock(entry,row){
@@ -322,10 +338,10 @@ function renderTimeline(keepScroll=false){
     if(row.key==="planPlace"){
       cls=`place-${entry.kind}`;label=planName(entry);sub=entry.goal_minutes?`研究目標${entry.goal_minutes}分`:time;
       title=`モデル（場所・移動）：${PLACES[entry.kind]} ${entry.label||""}\n${time}${entry.goal_minutes?`\n研究目標 ${entry.goal_minutes}分（時刻未指定）`:""}`;
-      onClick=()=>openChoice(entry);
+      onClick=()=>state.edit?openPlanDialog(entry):openChoice(entry);
     }else if(row.key==="planAct"){
       cls=`kind-${entry.kind}`;label=planName(entry);sub=time;
-      title=`モデル（活動）：${label}\n${time}`;onClick=()=>openChoice(entry);
+      title=`モデル（活動）：${label}\n${time}`;onClick=()=>state.edit?openPlanDialog(entry):openChoice(entry);
     }else if(row.key==="logPlace"){
       cls=`place-${entry.kind}`;label=PLACES[entry.kind]||entry.kind;sub=entry.memo||time;
       title=`実績（場所・移動）：${label}\n${time}${entry.memo?"\n"+entry.memo:""}`;onClick=()=>openPlaceDialog(entry);
@@ -333,7 +349,8 @@ function renderTimeline(keepScroll=false){
       cls=`kind-${entry.category}`;label=entry.theme||entry.content;sub=time;
       title=`実績（活動）：${CATEGORIES[entry.category]} ${label}\n${time}\n${entry.content}`;onClick=()=>openLogDialog(entry);
     }
-    const bttn=el("button",`timeline-block ${cls}${slim?" slim":""}`,null,{
+    const isPlan=row.key.startsWith("plan");
+    const bttn=el("button",`timeline-block ${cls}${slim?" slim":""} ${isPlan?"plan-part":"log-part"}${isPlan&&state.edit?" editable":""}`,null,{
       left:`${left+1}px`,width:`${Math.max(2,w-2)}px`,top:`${row.top+entry.row*row.spec.step}px`,height:`${row.spec.bar}px`
     });
     bttn.type="button";bttn.title=title;bttn.setAttribute("aria-label",title.replaceAll("\n"," "));
@@ -341,7 +358,8 @@ function renderTimeline(keepScroll=false){
       const main=document.createElement("span");main.className="block-name";main.textContent=label;bttn.appendChild(main);
       if(slim?w>170:w>102){const s=document.createElement("small");s.textContent=sub;bttn.appendChild(s);}
     }
-    bttn.addEventListener("click",onClick);
+    bttn.addEventListener("click",e=>{if(bttn.dataset.dragged){delete bttn.dataset.dragged;return;}onClick(e);});
+    if(isPlan&&state.edit)attachResize(bttn,entry,start,end);
   }
   for(const r of rows)r.lanes.items.forEach(e=>makeBlock(e,r));
 
@@ -442,6 +460,10 @@ function openPlanDialog(plan=null,preset=null){
   $("plan-kind").value=plan?.kind||(preset?.lane==="place"?"travel":"research");
   $("plan-goal").value=plan?.goal_minutes||0;
   $("delete-plan").hidden=!plan;
+  // 編集モードでは下書きに反映するだけ（範囲は「変更を保存」で選ぶ）
+  document.querySelector("#plan-form .scope-options").hidden=!!state.edit;
+  $("plan-scope-note").hidden=!!state.edit;
+  $("plan-form").querySelector('button[type="submit"]').textContent=state.edit?"反映":"保存";
   document.querySelector('input[name="plan-scope"][value="date"]').checked=true;
   // A date-only custom slot cannot be edited as a recurring slot, but a weekly slot can.
   $("weekly-scope-label").style.display=plan&&!plan.weekly_id?"none":"flex";
@@ -467,18 +489,129 @@ function planPayload(){
 async function savePlan(e){
   e.preventDefault();
   let payload;try{payload=planPayload();}catch(err){showToast(formatApiError(err),true);return;}
+  if(state.edit){
+    pushHistory();
+    const lane=isPlaceKind(payload.slot.kind)?"place":"activity";
+    const target=state.planEditing&&state.edit.slots.find(s=>s.id===state.planEditing.id);
+    if(target)Object.assign(target,payload.slot,{lane});
+    else state.edit.slots.push({...payload.slot,lane,id:"n"+Math.random().toString(36).slice(2,10),weekly_id:null});
+    $("plan-dialog").close();renderDay(true);return;
+  }
   const id=state.planEditing?.id;const submit=$("plan-form").querySelector('button[type="submit"]');submit.disabled=true;
   try{state.day=await request("/api/plans",id?"PATCH":"POST",payload);$("plan-dialog").close();renderDay(true);showToast("モデル時間割を保存しました。");}
   catch(err){showToast(formatApiError(err),true);}finally{submit.disabled=false;}
 }
 async function deletePlan(){
   const s=state.planEditing;if(!s)return;
+  if(state.edit){
+    pushHistory();state.edit.slots=state.edit.slots.filter(x=>x.id!==s.id);
+    $("plan-dialog").close();renderDay(true);return;
+  }
   const scope=document.querySelector('input[name="plan-scope"]:checked').value;
   if(!confirm(`${planName(s)}（${s.start}–${s.end}）を${scope==="weekly"?"毎週の基本モデル":"この日のモデル"}から削除しますか？`))return;
   try{
     state.day=await request("/api/plans","DELETE",{date:state.selectedDate,scope,id:s.id});
     $("plan-dialog").close();renderDay(true);showToast("モデル予定を削除しました。");
   }catch(err){showToast(formatApiError(err),true);}
+}
+
+// ---------- 編集モード ----------
+const PLAN_FIELDS=["start","end","label","kind","goal_minutes"];
+const clonePlan=p=>p.map(s=>({...s}));
+function currentPlan(){return state.edit?state.edit.slots:(state.day?.plan||[]);}
+function enterEdit(){
+  if(!state.day)return;
+  state.edit={slots:clonePlan(state.day.plan),orig:clonePlan(state.day.plan),history:[]};
+  renderDay(true);
+  $("timeline-scroll").scrollIntoView({block:"nearest",behavior:"smooth"});
+}
+function draftChangeCount(){
+  if(!state.edit)return 0;
+  const {slots,orig}=state.edit;const o=new Map(orig.map(s=>[s.id,s]));const ids=new Set(slots.map(s=>s.id));
+  let n=orig.filter(s=>!ids.has(s.id)).length;
+  for(const s of slots){const b=o.get(s.id);if(!b||PLAN_FIELDS.some(f=>String(s[f]??"")!==String(b[f]??"")))n++;}
+  return n;
+}
+function exitEdit(){
+  if(!state.edit)return true;
+  if(draftChangeCount()>0&&!confirm("保存していない変更があります。変更を破棄して編集を終了しますか？"))return false;
+  state.edit=null;renderDay(true);return true;
+}
+function pushHistory(){const h=state.edit.history;h.push(clonePlan(state.edit.slots));if(h.length>50)h.shift();}
+function undoEdit(){
+  const h=state.edit?.history;if(!h||!h.length)return;
+  state.edit.slots=h.pop();renderDay(true);
+}
+function renderEditState(){
+  const on=!!state.edit;const n=draftChangeCount();
+  $("day-view").classList.toggle("editing",on);
+  $("footer-normal").hidden=on;$("footer-edit").hidden=!on;
+  $("timeline-footer-note").textContent=on?"編集中：バーの端をドラッグで長さを変更（15分単位）／バーを押すと詳細／空白を押すと追加":"実績がない時間は空白として表示されます。";
+  if(!on)return;
+  const save=$("edit-save");save.disabled=n===0;save.textContent=n?`変更を保存（${n}件）`:"変更を保存";
+  save.classList.toggle("attention",n>0);
+  $("edit-undo").disabled=!state.edit.history.length;
+}
+// バーの左右の端をドラッグして長さを変える（15分単位。動くのはその予定だけ）
+function attachResize(bttn,entry,tlStart,tlEnd){
+  for(const edge of ["start","end"]){
+    const h=document.createElement("span");h.className=`resize-handle ${edge}`;h.setAttribute("aria-hidden","true");
+    bttn.appendChild(h);
+    h.addEventListener("click",e=>e.stopPropagation());
+    h.addEventListener("pointerdown",e=>{
+      e.preventDefault();e.stopPropagation();h.setPointerCapture(e.pointerId);
+      const x0=e.clientX;const s0=toMinutes(entry.start),e0=toMinutes(entry.end);
+      const left0=parseFloat(bttn.style.left),width0=parseFloat(bttn.style.width);
+      let ns=s0,ne=e0;
+      const tip=document.createElement("span");tip.className="resize-tip";bttn.appendChild(tip);
+      bttn.classList.add("resizing");
+      const move=ev=>{
+        const t=(edge==="start"?s0:e0)+(ev.clientX-x0)/PX_PER_MIN;
+        const snapped=Math.round(t/15)*15;
+        if(edge==="start"){ns=Math.max(tlStart,Math.min(snapped,e0-15));}
+        else{ne=Math.min(tlEnd,23*60+45,Math.max(snapped,s0+15));}
+        const dl=(Math.max(ns,tlStart)-Math.max(s0,tlStart))*PX_PER_MIN;
+        const dw=(Math.min(ne,tlEnd)-Math.max(ns,tlStart))-(Math.min(e0,tlEnd)-Math.max(s0,tlStart));
+        bttn.style.left=`${left0+dl}px`;bttn.style.width=`${Math.max(2,width0+dw*PX_PER_MIN)}px`;
+        tip.textContent=`${toTime(ns)}–${toTime(ne)}（${fmtMinutes(ne-ns)}）`;
+      };
+      move(e);
+      const up=()=>{
+        h.removeEventListener("pointermove",move);h.removeEventListener("pointerup",up);h.removeEventListener("pointercancel",up);
+        bttn.classList.remove("resizing");tip.remove();
+        if(ns===s0&&ne===e0){renderDay(true);return;}
+        bttn.dataset.dragged="1";
+        const target=state.edit.slots.find(s=>s.id===entry.id);if(!target)return;
+        pushHistory();
+        target.start=toTime(ns);target.end=toTime(ne);
+        const dur=ne-ns;
+        if(target.kind==="research")target.goal_minutes=dur;
+        if(target.kind==="travel"&&target.goal_minutes>dur){target.goal_minutes=dur;showToast(`移動が短くなったため、研究目標を${dur}分にしました。`);}
+        renderDay(true);
+      };
+      h.addEventListener("pointermove",move);h.addEventListener("pointerup",up);h.addEventListener("pointercancel",up);
+    });
+  }
+}
+function openSavePlanDialog(){
+  const n=draftChangeCount();if(!n)return;
+  const d=state.day;const wd=`${WEEKDAYS[d.weekday]}曜日`;
+  $("save-plan-sub").textContent=`${fmtDay(d.date)}のモデル予定に ${n}件の変更があります。どこに保存しますか？`;
+  $("save-plan-date-text").innerHTML=`この日だけ（${escapeHTML(fmtDay(d.date,true))}）<small>他の日には影響しません</small>`;
+  $("save-plan-weekly-text").innerHTML=`毎週の${escapeHTML(wd)}<small>今後のすべての${escapeHTML(wd)}に反映します</small>`;
+  const blocked=d.plan_source==="override";
+  $("save-plan-weekly").disabled=blocked;
+  $("save-plan-note").hidden=!blocked;
+  $("save-plan-note").textContent=blocked?`この日は${d.applied_pattern?`「${d.applied_pattern}」を適用中`:"いつもの予定から変更済み"}のため、「この日だけ」に保存できます。毎週の${wd}を変えたいときは、先にこの日の変更を解除してください。`:"";
+  $("save-plan-dialog").showModal();
+}
+async function saveDraft(scope){
+  const slots=state.edit.slots.map(({row,lane,...rest})=>rest);
+  try{
+    state.day=await request("/api/plans/bulk","POST",{date:state.day.date,scope,slots});
+    $("save-plan-dialog").close();state.edit=null;renderDay(true);
+    showToast(scope==="weekly"?`毎週の${WEEKDAYS[state.day.weekday]}曜日の予定を保存しました。`:"この日の予定を保存しました。");
+  }catch(e){showToast(formatApiError(e),true);}
 }
 
 function openPlaceDialog(entry=null,plan=null){

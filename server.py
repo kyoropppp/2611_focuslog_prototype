@@ -471,6 +471,53 @@ def mutate_plan(payload, method):
     return get_day(day)
 
 
+def replace_plans(payload):
+    """編集モードでまとめて編集したモデル予定を保存する。
+    scope=date   : その日の予定を slots で置き換える（パターン名は維持）
+    scope=weekly : その曜日の毎週の予定を slots で置き換える（weekly_id で更新・追加・削除を判定）
+    """
+    day=iso_date(payload.get("date"))
+    scope=payload.get("scope")
+    if scope not in ("date","weekly"):
+        raise BadRequest("保存する範囲は『この日だけ』『毎週』から選択してください。")
+    raw=payload.get("slots")
+    if not isinstance(raw,list) or len(raw)>100:
+        raise BadRequest("予定の一覧が不正です。")
+    validated=[(r,validate_slot(r)) for r in raw]  # すべて検証してから書き込む
+    with DB_LOCK,db() as con:
+        if scope=="date":
+            out=[];used=set()
+            for r,v in validated:
+                sid=r.get("id")
+                if not isinstance(sid,str) or not sid or len(sid)>40 or sid in used:
+                    sid="d"+uuid.uuid4().hex[:12]
+                used.add(sid)
+                wid=r.get("weekly_id")
+                out.append({**v,"id":sid,"weekly_id":wid if type(wid) is int else None})
+            out.sort(key=lambda s:(s["start"],s["end"]))
+            con.execute("""INSERT INTO day_overrides(day,slots_json) VALUES (?,?)
+                           ON CONFLICT(day) DO UPDATE SET slots_json=excluded.slots_json""",
+                        (day,json.dumps(out,ensure_ascii=False)))
+        else:
+            if con.execute("SELECT 1 FROM day_overrides WHERE day=?",(day,)).fetchone():
+                raise BadRequest("この日はいつもの予定から変更されているため、毎週の予定としては保存できません。先にこの日の変更を解除してください。")
+            weekday=date.fromisoformat(day).weekday()
+            existing={r[0] for r in con.execute("SELECT id FROM weekly_plans WHERE weekday=?",(weekday,))}
+            kept=set()
+            for r,v in validated:
+                wid=r.get("weekly_id")
+                if type(wid) is int and wid in existing and wid not in kept:
+                    con.execute("UPDATE weekly_plans SET start=?,end=?,label=?,kind=?,goal_minutes=? WHERE id=?",
+                                (v["start"],v["end"],v["label"],v["kind"],v["goal_minutes"],wid))
+                    kept.add(wid)
+                else:
+                    con.execute("INSERT INTO weekly_plans(weekday,start,end,label,kind,goal_minutes) VALUES (?,?,?,?,?,?)",
+                                (weekday,v["start"],v["end"],v["label"],v["kind"],v["goal_minutes"]))
+            for wid in existing-kept:
+                con.execute("DELETE FROM weekly_plans WHERE id=?",(wid,))
+    return get_day(day)
+
+
 def reset_day(day):
     iso_date(day)
     with DB_LOCK,db() as con:
@@ -701,7 +748,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not path.startswith("/api/"):
             return super().do_GET()
         try:
-            if path=="/api/health":return self.reply_json({"ok":True,"app":"FocusLog","version":"0.3.0"})
+            if path=="/api/health":return self.reply_json({"ok":True,"app":"FocusLog","version":"0.4.0"})
             if path=="/api/day":return self.reply_json(get_day(q.get("date",[date.today().isoformat()])[0]))
             if path=="/api/themes":return self.reply_json(get_themes())
             if path=="/api/summary":
@@ -730,6 +777,8 @@ class Handler(SimpleHTTPRequestHandler):
                 item_id=self.numeric_id(path,"/api/place-logs/")
                 if method=="PATCH":return self.reply_json(save_place_log(self.read_json(),item_id))
                 return self.reply_json(remove_place_log(item_id))
+            if path=="/api/plans/bulk" and method=="POST":
+                return self.reply_json(replace_plans(self.read_json()))
             if path=="/api/plans" and method in ("POST","PATCH","DELETE"):
                 return self.reply_json(mutate_plan(self.read_json(),method),201 if method=="POST" else 200)
             if path=="/api/day-pattern" and method=="POST":
