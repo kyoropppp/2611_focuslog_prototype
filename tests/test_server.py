@@ -150,6 +150,37 @@ class ApplicationTests(unittest.TestCase):
         with self.assertRaises(app.BadRequest):  # 活動の予定は名前が必須
             app.mutate_plan({"date":day,"scope":"date","slot":{"start":"07:00","end":"08:00","kind":"research","label":""}},"POST")
 
+    # ---- v0.3: 曜日ごとの別パターン ----
+    def test_tuesday_pattern_is_applied_on_nov17(self):
+        nov17=app.get_day("2026-11-17")
+        self.assertEqual(nov17["applied_pattern"],"輪読なし")
+        self.assertEqual([p["name"] for p in nov17["patterns"]],["輪読なし"])
+        self.assertIsNone(app.get_day("2026-11-24")["applied_pattern"])
+
+    def test_friday_no_seminar_pattern_apply_and_release(self):
+        day="2026-12-11"  # 金曜
+        before=app.get_day(day)
+        self.assertEqual([p["name"] for p in before["patterns"]],["ゼミなし"])
+        self.assertTrue(any(s["label"]=="ゼミ" for s in before["plan"]))
+        pid=before["patterns"][0]["id"]
+        d=app.apply_pattern({"date":day,"pattern_id":pid})
+        self.assertEqual(d["plan_source"],"override")
+        self.assertEqual(d["applied_pattern"],"ゼミなし")
+        self.assertFalse(any(s["label"]=="ゼミ" or s["kind"]=="travel" for s in d["plan"]))  # 通学・ゼミなし（土曜型）
+        self.assertEqual(app.summary(day,day)["total"]["research_goal"],360)
+        # パターン適用後に「この日だけ」編集してもパターン名は残る
+        slot=d["plan"][0]
+        e=app.mutate_plan({"date":day,"scope":"date","id":slot["id"],"slot":{**slot,"start":"07:30","goal_minutes":120}},"PATCH")
+        self.assertEqual(e["applied_pattern"],"ゼミなし")
+        # 他の金曜には影響しない
+        self.assertTrue(any(s["label"]=="ゼミ" for s in app.get_day("2026-12-18")["plan"]))
+        # 解除で通常に戻る
+        r=app.reset_day(day)
+        self.assertEqual((r["plan_source"],r["applied_pattern"]),("weekly",None))
+        self.assertTrue(any(s["label"]=="ゼミ" for s in r["plan"]))
+        with self.assertRaises(app.BadRequest):app.apply_pattern({"date":"2026-12-10","pattern_id":pid})  # 木曜には適用不可
+        with self.assertRaises(app.BadRequest):app.apply_pattern({"date":day,"pattern_id":9999})
+
     def test_http_place_logs_and_exports(self):
         import threading, urllib.request
         from http.server import ThreadingHTTPServer
@@ -167,6 +198,11 @@ class ApplicationTests(unittest.TestCase):
             self.assertIn("travel",call("/api/export?format=places_csv"))
             self.assertEqual(json.loads(call("/api/export?format=json"))["place_logs"][-1]["id"],pid)
             self.assertIn("category",call("/api/export?format=csv"))
+            self.assertIn("day_patterns",json.loads(call("/api/export?format=json")))
+            fri=json.loads(call("/api/day?date=2026-12-25"))
+            applied=json.loads(call("/api/day-pattern","POST",{"date":"2026-12-25","pattern_id":fri["patterns"][0]["id"]}))
+            self.assertEqual(applied["applied_pattern"],"ゼミなし")
+            self.assertEqual(json.loads(call("/api/day-override","DELETE",{"date":"2026-12-25"}))["plan_source"],"weekly")
             call(f"/api/place-logs/{pid}","DELETE",{})
         finally:
             httpd.shutdown();httpd.server_close()
@@ -236,11 +272,32 @@ class MigrationTests(unittest.TestCase):
         tue=app.get_day("2026-11-24")["plan"]
         self.assertTrue(any(s["label"]=="通学" and s["goal_minutes"]==90 for s in tue))
         self.assertFalse(any("研究可能" in s["label"] for s in tue+nov17["plan"]))
+        # v3: パターンの登録と、既存の 11/17 をパターン適用日として扱う
+        self.assertEqual(nov17["applied_pattern"],"輪読なし")
+        self.assertEqual([p["name"] for p in app.get_day("2026-12-11")["patterns"]],["ゼミなし"])
+        with app.db() as con:
+            self.assertEqual(con.execute("SELECT value FROM preferences WHERE key='schema_version'").fetchone()[0],"3")
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM day_patterns").fetchone()[0],2)
         self.assertEqual(app.get_day("2026-11-17")["preferences"]["timeline_start"],"06:00")
         # 再実行してもバックアップ・重複は発生しない
         self.assertIsNone(app.init_db())
         self.assertEqual(self.counts(),c)
         self.assertEqual(len(list((app.DATA_DIR/"backups").iterdir())),1)
+
+    def test_migrate_v2_to_v3(self):
+        app.init_db()  # v1→v3
+        app.save_place_log({"day":"2026-11-13","start":"08:00","end":"10:00","kind":"travel"})
+        with app.db() as con:  # v2 の状態を再現（パターン機能なし）
+            con.execute("DROP TABLE day_patterns")
+            con.execute("UPDATE day_overrides SET pattern_name=NULL")
+            con.execute("UPDATE preferences SET value='2' WHERE key='schema_version'")
+        before=self.counts()
+        backup=app.init_db()
+        self.assertIsNotNone(backup)
+        self.assertEqual(self.counts(),before)
+        self.assertEqual(app.get_day("2026-11-17")["applied_pattern"],"輪読なし")
+        self.assertEqual(len(app.get_day("2026-11-20")["patterns"]),1)
+        self.assertIsNone(app.init_db())
 
     def test_reset_exception_is_not_resurrected_on_restart(self):
         app.init_db()

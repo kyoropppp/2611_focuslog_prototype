@@ -173,3 +173,11 @@ textarea{resize:vertical;min-height:70px;line-height:1.65}.settings-time-form in
   .summary-places{padding:0 14px 18px}
   .row-empty-hint{font-size:10px}
 }
+
+/* ---- v0.3: 予定パターン ---- */
+.pattern-switch{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto}
+.pattern-label{font-size:10px;color:var(--dim);font-weight:750;letter-spacing:.06em;margin-right:2px}
+.pattern-chip{min-height:32px;padding:5px 12px;border-radius:999px;border:1px solid #34465d;background:#1b2839;color:#9db0c8;font-size:11px;font-weight:700;white-space:nowrap}
+.pattern-chip:hover{background:#25364b;color:#d7e3f3}
+.pattern-chip.active{background:#25416c;border-color:#4c73b1;color:#e3eeff}
+@media(max-width:620px){.pattern-switch{order:3;width:100%;margin-left:0}.pattern-chip{min-height:30px;padding:4px 10px}}

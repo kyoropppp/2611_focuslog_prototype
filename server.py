@@ -33,7 +33,7 @@ CATEGORIES = ("research", "philosophy", "llm")
 ACTIVITY_PLAN_TYPES = ("research", "philosophy", "llm", "break", "fixed", "margin")
 PLACE_KINDS = ("home", "lab", "travel", "other")  # 自宅 / 研究室 / 移動中 / その他
 PLAN_TYPES = ACTIVITY_PLAN_TYPES + PLACE_KINDS
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 DURATION_SQL = """((CAST(SUBSTR(end,1,2) AS INTEGER)*60+CAST(SUBSTR(end,4,2) AS INTEGER))-
                    (CAST(SUBSTR(start,1,2) AS INTEGER)*60+CAST(SUBSTR(start,4,2) AS INTEGER)))"""
@@ -128,10 +128,11 @@ def backup_db(tag):
 def init_db():
     """DBの作成・移行。何度実行してもデータは重複・破損しない。
 
-    移行（v1→v2）の内容:
-      - 変更前に data/backups/ へバックアップを作成
-      - place_logs（場所・移動の実績）テーブルを追加
-      - 既存の予定は書き換えない。kind=travel は「場所・移動」段として表示され、goal_minutes も維持される
+    移行の内容（変更前に data/backups/ へバックアップを作成）:
+      v1→v2: place_logs（場所・移動の実績）テーブルを追加。既存の予定は書き換えない
+             （kind=travel は「場所・移動」段として表示され、goal_minutes も維持）
+      v2→v3: day_patterns（曜日ごとの別パターン）を追加し、火曜「輪読なし」・金曜「ゼミなし」を登録。
+             day_overrides に pattern_name 列を追加し、既存の 11/17（輪読なし）をパターン適用日として扱う
     """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with DB_LOCK:
@@ -140,11 +141,12 @@ def init_db():
         backup = backup_db(f"before_v{SCHEMA_VERSION}") if 0 < version < SCHEMA_VERSION else None
         if backup:
             print(f"データベースを移行します。バックアップ: {backup}")
-        _create_and_seed(fresh=(version == 0))
+        _create_and_seed(version)
     return backup
 
 
-def _create_and_seed(fresh):
+def _create_and_seed(version):
+    fresh = version == 0
     with db() as con:
         con.executescript("""
             CREATE TABLE IF NOT EXISTS weekly_plans (
@@ -158,7 +160,15 @@ def _create_and_seed(fresh):
             );
             CREATE TABLE IF NOT EXISTS day_overrides (
                 day TEXT PRIMARY KEY,
-                slots_json TEXT NOT NULL
+                slots_json TEXT NOT NULL,
+                pattern_name TEXT
+            );
+            CREATE TABLE IF NOT EXISTS day_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+                name TEXT NOT NULL,
+                slots_json TEXT NOT NULL,
+                UNIQUE(weekday, name)
             );
             CREATE TABLE IF NOT EXISTS themes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -205,15 +215,22 @@ def _create_and_seed(fresh):
             con.executemany("INSERT INTO themes(category,name) VALUES (?,?)", samples)
         con.execute("INSERT OR IGNORE INTO preferences(key,value) VALUES ('timeline_start','07:00')")
         con.execute("INSERT OR IGNORE INTO preferences(key,value) VALUES ('timeline_end','23:00')")
-        # 2026/11/17 は輪読なし（初回作成時のみ登録。ユーザーが解除した例外を再起動で復活させない）
-        if fresh and con.execute("SELECT COUNT(*) FROM day_overrides WHERE day='2026-11-17'").fetchone()[0] == 0:
-            monday_tuesday = weekly_for_day(con, "2026-11-17")
-            for s in monday_tuesday:
-                s.pop("lane", None)
-                if s["start"] == "10:00" and s["end"] == "12:00" and s["kind"] == "fixed":
-                    s["label"], s["kind"], s["goal_minutes"] = "研究・修論（輪読なし）", "research", 120
-            con.execute("INSERT INTO day_overrides(day,slots_json) VALUES (?,?)", ("2026-11-17", json.dumps(monday_tuesday, ensure_ascii=False)))
+        if "pattern_name" not in [r[1] for r in con.execute("PRAGMA table_info(day_overrides)")]:
+            con.execute("ALTER TABLE day_overrides ADD COLUMN pattern_name TEXT")
         rename_legacy_labels(con)
+        # パターンの初期登録は v3 未満からの移行時（新規作成を含む）だけ。後から消したパターンを復活させない。
+        if version < 3:
+            for weekday, name, slots in default_patterns(con):
+                con.execute("INSERT OR IGNORE INTO day_patterns(weekday,name,slots_json) VALUES (?,?,?)",
+                            (weekday, name, json.dumps(slots, ensure_ascii=False)))
+            # 既存の 11/17（輪読なし）はパターン適用日として扱う
+            con.execute("""UPDATE day_overrides SET pattern_name='輪読なし'
+                           WHERE day='2026-11-17' AND pattern_name IS NULL AND slots_json LIKE '%輪読なし%'""")
+        # 2026/11/17 は輪読なし（初回作成時のみ。ユーザーが解除した例外を再起動で復活させない）
+        if fresh and con.execute("SELECT COUNT(*) FROM day_overrides WHERE day='2026-11-17'").fetchone()[0] == 0:
+            row = con.execute("SELECT id FROM day_patterns WHERE weekday=1 AND name='輪読なし'").fetchone()
+            if row:
+                _apply_pattern(con, "2026-11-17", row[0])
         con.execute("INSERT INTO preferences(key,value) VALUES ('schema_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     (str(SCHEMA_VERSION),))
 
@@ -234,6 +251,57 @@ def rename_legacy_labels(con):
                 changed = True
         if changed:
             con.execute("UPDATE day_overrides SET slots_json=? WHERE day=?", (json.dumps(slots, ensure_ascii=False), row[0]))
+
+
+def default_patterns(con):
+    """曜日ごとの別パターンの初期値: (weekday, name, slots)"""
+    # 火曜「輪読なし」：毎週の火曜をもとに、10:00〜12:00 の輪読を研究に変更
+    tuesday = []
+    for s in weekly_for_day(con, "2026-11-24"):
+        slot = {k: s[k] for k in ("start", "end", "label", "kind", "goal_minutes")}
+        if slot["start"] == "10:00" and slot["end"] == "12:00" and slot["kind"] == "fixed":
+            slot.update(label="研究・修論（輪読なし）", kind="research", goal_minutes=120)
+        tuesday.append(slot)
+    # 金曜「ゼミなし」：通学せず自宅で過ごす土曜型
+    friday = [dict(zip(("start", "end", "label", "kind", "goal_minutes"), x)) for x in [
+        ("07:00", "09:30", "研究・修論", "research", 150),
+        ("09:30", "10:00", "休憩", "break", 0),
+        ("10:00", "12:30", "研究・修論", "research", 150),
+        ("12:30", "13:30", "昼食", "break", 0),
+        ("13:30", "14:30", "研究・修論", "research", 60),
+        ("14:30", "18:00", "哲学（任意）", "philosophy", 0),
+        ("18:00", "18:30", "休憩", "break", 0),
+        ("18:30", "21:00", "LLM（任意）", "llm", 0),
+    ]]
+    return [(1, "輪読なし", tuesday), (4, "ゼミなし", friday)]
+
+
+def list_patterns(con, weekday):
+    return [{"id": r["id"], "name": r["name"]}
+            for r in con.execute("SELECT id,name FROM day_patterns WHERE weekday=? ORDER BY id", (weekday,))]
+
+
+def _apply_pattern(con, day, pattern_id):
+    row = con.execute("SELECT weekday,name,slots_json FROM day_patterns WHERE id=?", (pattern_id,)).fetchone()
+    if not row:
+        raise BadRequest("パターンが見つかりません。")
+    if row["weekday"] != date.fromisoformat(day).weekday():
+        raise BadRequest("このパターンは別の曜日用です。")
+    slots = [{**s, "id": "d" + uuid.uuid4().hex[:12], "weekly_id": None} for s in json.loads(row["slots_json"])]
+    con.execute("""INSERT INTO day_overrides(day,slots_json,pattern_name) VALUES (?,?,?)
+                   ON CONFLICT(day) DO UPDATE SET slots_json=excluded.slots_json, pattern_name=excluded.pattern_name""",
+                (day, json.dumps(slots, ensure_ascii=False), row["name"]))
+
+
+def apply_pattern(payload):
+    """その日にパターンを適用する（その日のモデルはパターンの内容に置き換わる）。解除は reset_day。"""
+    day = iso_date(payload.get("date"))
+    pattern_id = payload.get("pattern_id")
+    if type(pattern_id) is not int:
+        raise BadRequest("パターンを指定してください。")
+    with DB_LOCK, db() as con:
+        _apply_pattern(con, day, pattern_id)
+    return get_day(day)
 
 
 def default_weekly():
@@ -325,8 +393,11 @@ def get_day(day):
         logs=query_logs(con,day)
         place_logs=query_place_logs(con,day)
         p=prefs(con)
-    return {"date":day,"weekday":date.fromisoformat(day).weekday(),"plan_source":source,
-            "plan":slots,"logs":logs,"place_logs":place_logs,"preferences":p}
+        weekday=date.fromisoformat(day).weekday()
+        patterns=list_patterns(con,weekday)
+        row=con.execute("SELECT pattern_name FROM day_overrides WHERE day=?",(day,)).fetchone()
+    return {"date":day,"weekday":weekday,"plan_source":source,"applied_pattern":row["pattern_name"] if row else None,
+            "patterns":patterns,"plan":slots,"logs":logs,"place_logs":place_logs,"preferences":p}
 
 
 def validate_slot(obj):
@@ -565,8 +636,9 @@ def export_data(fmt):
         all_weekly=[dict(x) for x in con.execute("SELECT * FROM weekly_plans ORDER BY weekday,start")]
         all_overrides=[dict(x) for x in con.execute("SELECT * FROM day_overrides ORDER BY day")]
         all_themes=[dict(x) for x in con.execute("SELECT * FROM themes")]
+        all_patterns=[dict(x) for x in con.execute("SELECT * FROM day_patterns ORDER BY weekday,id")]
         data={"schema":SCHEMA_VERSION,"exported_at":datetime.now().isoformat(timespec="seconds"),"logs":logs,"place_logs":place_logs,
-              "weekly_plans":all_weekly,"day_overrides":all_overrides,"themes":all_themes,"preferences":prefs(con)}
+              "weekly_plans":all_weekly,"day_overrides":all_overrides,"day_patterns":all_patterns,"themes":all_themes,"preferences":prefs(con)}
         return json.dumps(data,ensure_ascii=False,indent=2),"application/json; charset=utf-8","focuslog_backup.json"
 
 
@@ -629,7 +701,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not path.startswith("/api/"):
             return super().do_GET()
         try:
-            if path=="/api/health":return self.reply_json({"ok":True,"app":"FocusLog","version":"0.2.0"})
+            if path=="/api/health":return self.reply_json({"ok":True,"app":"FocusLog","version":"0.3.0"})
             if path=="/api/day":return self.reply_json(get_day(q.get("date",[date.today().isoformat()])[0]))
             if path=="/api/themes":return self.reply_json(get_themes())
             if path=="/api/summary":
@@ -660,6 +732,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.reply_json(remove_place_log(item_id))
             if path=="/api/plans" and method in ("POST","PATCH","DELETE"):
                 return self.reply_json(mutate_plan(self.read_json(),method),201 if method=="POST" else 200)
+            if path=="/api/day-pattern" and method=="POST":
+                return self.reply_json(apply_pattern(self.read_json()))
             if path=="/api/day-override" and method=="DELETE":
                 return self.reply_json(reset_day(self.read_json().get("date")))
             if path=="/api/themes" and method=="POST":return self.reply_json(manage_theme(method,self.read_json()),201)

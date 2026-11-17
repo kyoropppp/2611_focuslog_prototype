@@ -145,7 +145,8 @@ function renderDay(keepScroll=false){
   const data=state.day;
   $("date-label").textContent=fmtDay(data.date);
   $("date-input").value=data.date;
-  $("day-plan-state").textContent=data.plan_source==="override"?"この日の個別設定":"毎週のモデル";
+  $("day-plan-state").textContent=data.applied_pattern?`パターン：${data.applied_pattern}`:data.plan_source==="override"?"この日の個別設定":"毎週のモデル";
+  renderPatternSwitch();
   const researchPlan=data.plan.reduce((s,x)=>s+(Number(x.goal_minutes)||0),0);
   const totals={research:0,philosophy:0,llm:0};
   for(const log of data.logs)totals[log.category]+=timeLength(log);
@@ -163,6 +164,34 @@ function renderDay(keepScroll=false){
   renderTimeline(keepScroll);
   renderPlaces();
   renderLogs();
+}
+// 曜日ごとの別パターン（例：火曜「輪読なし」、金曜「ゼミなし」）。「通常」で解除して毎週のモデルに戻す。
+function renderPatternSwitch(){
+  const data=state.day;const sw=$("pattern-switch");const pats=data.patterns||[];
+  sw.hidden=!pats.length;sw.replaceChildren();if(!pats.length)return;
+  const label=document.createElement("span");label.className="pattern-label";label.textContent="パターン";sw.append(label);
+  const items=[{id:null,name:"通常",active:data.plan_source==="weekly"},...pats.map(p=>({...p,active:data.applied_pattern===p.name}))];
+  for(const p of items){
+    const b=document.createElement("button");b.type="button";b.textContent=p.name;b.className="pattern-chip"+(p.active?" active":"");
+    b.setAttribute("aria-pressed",String(p.active));
+    b.addEventListener("click",()=>switchPattern(p));sw.append(b);
+  }
+}
+async function switchPattern(p){
+  const data=state.day;if(p.active)return;
+  const manual=data.plan_source==="override"&&!data.applied_pattern;
+  try{
+    if(p.id===null){
+      if(!confirm(`${fmtDay(data.date)}を通常（毎週のモデル）に戻しますか？${manual?"\nこの日だけ変更した予定は削除されます。":""}`))return;
+      state.day=await request("/api/day-override","DELETE",{date:data.date});
+      showToast("通常の予定に戻しました。");
+    }else{
+      if(data.plan_source==="override"&&!confirm(`この日の予定を「${p.name}」に置き換えますか？${manual?"\nこの日だけ変更した予定は削除されます。":""}`))return;
+      state.day=await request("/api/day-pattern","POST",{date:data.date,pattern_id:p.id});
+      showToast(`「${p.name}」の予定にしました。戻すときは「通常」を押してください。`);
+    }
+    renderDay(true);
+  }catch(e){showToast(formatApiError(e),true);}
 }
 function renderPlaces(){
   const parent=$("place-list");parent.replaceChildren();
