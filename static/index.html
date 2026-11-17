@@ -30,7 +30,7 @@
     <div class="topbar-inner">
       <div class="brand" aria-label="FocusLog">
         <div class="brand-mark"><span></span><span></span><span></span></div>
-        <div><div class="brand-name">FocusLog<span class="brand-dot">.</span></div><div class="brand-subtitle">研究・哲学・LLM</div></div>
+        <div><div class="brand-name">FocusLog<span class="brand-dot">.</span></div></div>
       </div>
       <nav class="primary-nav" aria-label="メインナビゲーション">
         <button type="button" class="nav-item active" data-view="day" aria-current="page"><svg class="icon"><use href="#i-calendar"/></svg><span>1日の記録</span></button>
@@ -43,17 +43,10 @@
   </header>
 
   <main class="main" id="app">
-    <section id="day-view" class="view active" aria-labelledby="day-heading">
-      <div class="page-head">
-        <div>
-          <div class="eyebrow">DAILY JOURNAL</div>
-          <h1 id="day-heading">今日の時間割</h1>
-          <p class="page-description">モデルと実績を「場所・移動」「活動」に分けて、共通の時間軸で比較します。</p>
-        </div>
-      </div>
-
-      <section class="day-nav card" aria-label="日付の選択">
+    <section id="day-view" class="view active" aria-label="1日の記録">
+      <section class="day-nav" aria-label="日付の選択">
         <div class="date-left">
+          <h1 class="sr-only">1日の記録</h1>
           <button id="prev-day" class="icon-button" title="前日" aria-label="前日"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
           <button id="next-day" class="icon-button" title="翌日" aria-label="翌日"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
           <div class="selected-date" id="date-label" aria-live="polite">—</div>

@@ -25,7 +25,6 @@ a{color:#98bcfa;text-decoration:none}a:hover{text-decoration:underline}
 .brand-mark span:nth-child(2){height:13px;background:var(--amber)}
 .brand-mark span:nth-child(3){height:9px;background:var(--green)}
 .brand-name{font-size:19px;font-weight:750;letter-spacing:-.5px;line-height:1.15}.brand-dot{color:var(--blue)}
-.brand-subtitle{font-size:10px;color:var(--muted);letter-spacing:.08em;margin-top:3px}
 .primary-nav{display:flex;align-self:stretch;gap:5px;align-items:center}
 .nav-item{display:flex;align-items:center;gap:9px;min-height:44px;padding:0 17px;background:transparent;color:var(--muted);border:1px solid transparent;border-radius:10px;font-size:13px;font-weight:650;white-space:nowrap}
 .nav-item:hover{color:var(--text);background:#1c2736}.nav-item.active{background:#1d3150;color:#b5cffb;border-color:#36527d}
@@ -117,7 +116,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.65}.settings-time-form in
   .selected-date{min-width:0;margin-left:8px;font-size:15px}.date-nav{gap:8px}.date-tag{display:none}
 }
 @media(max-width:620px){
-  .topbar-inner{padding:10px 12px 8px;display:block;min-height:0}.brand{gap:10px}.brand-mark{height:30px;width:30px;padding:5px}.brand-name{font-size:17px}.brand-subtitle{font-size:9px}
+  .topbar-inner{padding:10px 12px 8px;display:block;min-height:0}.brand{gap:10px}.brand-mark{height:30px;width:30px;padding:5px}.brand-name{font-size:17px}
   .primary-nav{margin-top:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.nav-item{min-height:37px;padding:5px 6px;justify-content:center;font-size:11px;gap:6px}.nav-item .icon{width:15px;height:15px}
   .main{padding:22px 12px 44px}h1{font-size:25px}.page-description{font-size:11px}.page-head{align-items:start}
   .day-nav{padding:12px 10px;flex-wrap:wrap;gap:10px}.date-left{gap:4px;flex:1}.date-left .icon-button{height:32px;width:32px}.selected-date{font-size:13px;min-width:0;white-space:normal;line-height:1.4;margin-left:5px}.date-right .date-tag{display:none}.date-right .btn{padding:6px 8px}
@@ -183,7 +182,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.65}.settings-time-form in
 .edit-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
 .edit-actions .btn .icon{width:14px;height:14px}
 #day-view>*{transition:opacity .2s}
-#day-view.editing .day-nav,#day-view.editing .metrics,#day-view.editing #place-card,#day-view.editing .activity-card,#day-view.editing .page-head{opacity:.35;pointer-events:none}
+#day-view.editing .day-nav,#day-view.editing .metrics,#day-view.editing #place-card,#day-view.editing .activity-card{opacity:.35;pointer-events:none}
 #day-view.editing .timeline-card{border-color:#4f78c4;box-shadow:0 0 0 1px #4f78c455,0 10px 40px #0a142a}
 #day-view.editing .log-part{opacity:.28;pointer-events:none}
 #day-view.editing .timeline-group.group-model{background:#5281de1c;border-top-color:#5d8be3}
@@ -209,3 +208,16 @@ textarea{resize:vertical;min-height:70px;line-height:1.65}.settings-time-form in
 .topbar-right+.reload-button{margin-left:-34px}
 @media(max-width:840px){.reload-button{margin-left:6px}}
 @media(max-width:620px){.topbar-inner{position:relative}.reload-button{position:absolute;top:10px;right:12px;width:32px;height:32px}}
+
+/* 1日の記録：上部を1行のヘッダーに（ロゴ ＋ < > 日付 ＋ 状態） */
+.day-nav{padding:0 2px 18px;margin-bottom:20px;border-bottom:1px solid var(--stroke)}
+.day-nav .selected-date{font-size:22px;font-weight:650;letter-spacing:-.01em;margin-left:14px;min-width:0}
+.day-nav .icon-button{border-radius:50%;background:transparent;border-color:transparent;width:38px;height:38px}
+.day-nav .icon-button:hover{background:#1f2c3d}
+@media(max-width:840px){.day-nav .selected-date{font-size:18px}}
+@media(max-width:620px){
+  .day-nav{padding:0 0 12px;margin-bottom:14px}
+  .day-nav .selected-date{font-size:13px;margin-left:2px;white-space:nowrap}
+  .day-nav .date-left{gap:2px}
+  .day-nav .icon-button{width:32px;height:32px}
+}
